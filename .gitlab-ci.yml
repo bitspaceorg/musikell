@@ -1,0 +1,98 @@
+stages:
+  - feature-check
+  - staging-build
+  - staging-upload
+  - production-build
+  - production-upload
+  - production-release
+
+.nix-base:
+  image: nixos/nix:latest
+  variables:
+    GIT_DEPTH: 0
+  before_script:
+    - export NIX_CONFIG="experimental-features = nix-command flakes"
+
+feature-check:
+  extends: .nix-base
+  stage: feature-check
+  script:
+    - echo "[MUSIKELL::feature-check] Running checks on merge request..."
+    - nix develop .#stg -c ./utils/run-check.sh stg
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+
+staging-build:
+  extends: .nix-base
+  stage: staging-build
+  script:
+    - echo "[MUSIKELL::staging-branch] Building binary for staging..."
+    - nix develop .#stg -c ./utils/run-check.sh stg
+    - nix build .# --out-link result
+    - echo "[MUSIKELL::staging-branch] Build successful. Preparing artifacts..."
+    - mkdir -p artifacts/bin
+    - cp result/bin/musikell artifacts/bin/
+  artifacts:
+    paths:
+      - artifacts/bin/
+  rules:
+    - if: $CI_COMMIT_BRANCH == "staging"
+
+staging-upload:
+  extends: .nix-base
+  stage: staging-upload
+  needs: [staging-build]
+  script:
+    - |
+      echo "[MUSIKELL::staging-branch] Uploading ./artifacts/bin/musikell to Supabase as musikell-${CI_COMMIT_SHORT_SHA}"
+      nix develop .#stg -c \
+        curl -X POST \
+             --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+             --header "Content-Type: application/octet-stream" \
+             --header "x-upsert: true" \
+             --data-binary "@artifacts/bin/musikell" \
+             "https://gkajuwzghjlrdpojnbwh.supabase.co/storage/v1/object/musikell/musikell-${CI_COMMIT_SHORT_SHA}"
+      echo "[MUSIKELL::staging-branch] Uploaded musikell-${CI_COMMIT_SHORT_SHA}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "staging"
+
+production-build:
+  extends: .nix-base
+  stage: production-build
+  script:
+    - echo "[MUSIKELL::production-release] Building binary for version $CI_COMMIT_TAG..."
+    - nix develop .#stg -c ./utils/run-check.sh stg
+    - nix build .# --out-link result
+    - echo "[MUSIKELL::production-release] Build successful. Preparing artifacts..."
+    - mkdir -p artifacts/bin
+    - cp result/bin/musikell artifacts/bin/
+  artifacts:
+    paths:
+      - artifacts/bin/
+  rules:
+    - if: $CI_COMMIT_TAG && $CI_COMMIT_REF_PROTECTED == "true"
+
+production-upload:
+  extends: .nix-base
+  stage: production-upload
+  needs: [production-build]
+  script:
+    - |
+      nix develop .#stg -c \
+        curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+             --upload-file artifacts/bin/musikell \
+             "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/musikell/${CI_COMMIT_TAG}/musikell"
+  rules:
+    - if: $CI_COMMIT_TAG && $CI_COMMIT_REF_PROTECTED == "true"
+
+production-release:
+  extends: .nix-base
+  stage: production-release
+  needs: [production-upload]
+  script:
+    - |
+      nix develop .#stg -c \
+        release-cli create --name "Release $CI_COMMIT_TAG" --tag-name $CI_COMMIT_TAG \
+          --assets-link "{\"name\":\"musikell\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/musikell/${CI_COMMIT_TAG}/musikell\"}"
+  rules:
+    - if: $CI_COMMIT_TAG && $CI_COMMIT_REF_PROTECTED == "true"
