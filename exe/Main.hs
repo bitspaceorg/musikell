@@ -1,4 +1,4 @@
 module Main where
 
 main :: IO ()
-main = putStrLn "Execute generate node A4 (440hz)"
+main = putStrLn "Execute oscillator node A4 (440hz)"
