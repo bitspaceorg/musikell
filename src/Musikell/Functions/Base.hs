@@ -6,7 +6,7 @@ module Musikell.Functions.Base (
 import qualified Musikell.Types.Base as Unit
 
 defaultSampleRate :: Unit.Hz
-defaultSampleRate = 48000
+defaultSampleRate = 44100
 
 angularFrequency :: Unit.Hz -> Unit.AngularFrequency
 angularFrequency = (*) ((*) 2 pi)
