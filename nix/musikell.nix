@@ -1,9 +1,21 @@
 { inputs, ... }:
 {
     perSystem =
-        { musikell, shell-config, ... }:
+        {
+            pkgs,
+            musikell,
+            shell-config,
+            ...
+        }:
         let
-            musikell-package = shell-config.ghcpkgs.callCabal2nix musikell.name inputs.self { };
+            musikell-package = (shell-config.ghcpkgs.callCabal2nix musikell.name inputs.self { }).overrideAttrs (old: {
+                buildInputs = old.buildInputs or [ ] ++ [
+                    shell-config.ghcpkgs.happy
+                    shell-config.ghcpkgs.alex
+                    pkgs.pkg-config
+
+                ];
+            });
         in
         {
             packages.default = musikell-package;

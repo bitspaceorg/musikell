@@ -27,8 +27,20 @@ custom-setup
 library
   import:           warnings
   exposed-modules:
+    Musikell.Nodes.Base.Base
+    Musikell.Nodes.Base.In
+    Musikell.Nodes.Base.Out
+    Musikell.Nodes.Oscilator.Descriptor
+    Musikell.Nodes.Oscilator.In
 
-  -- other-modules:
+  other-modules:
+    Musikell.Functions.Base
+    Musikell.Functions.Wave
+    Musikell.Nodes.Base.Descriptor
+    Musikell.Nodes.Oscilator.Base
+    Musikell.Nodes.Oscilator.Out
+    Musikell.Types.Base
+
   -- other-extensions:
   build-depends:    base ^>=4.17.2.1
   hs-source-dirs:   src
@@ -42,6 +54,7 @@ executable musikell
   -- other-extensions:
   build-depends:
     , base      ^>=4.17.2.1
+    , filepath  >=1.4.2.2
     , musikell
 
   hs-source-dirs:   exe
