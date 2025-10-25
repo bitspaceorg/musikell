@@ -28,7 +28,7 @@ feature-check:
   coverage: '/(\d+\.?\d*)% expressions used/'
   artifacts:
     paths:
-      - result/coverage/vanilla/html/musikell-test/
+      - result/coverage/hpc/vanilla/html/musikell-test
     expire_in: 1 week
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
