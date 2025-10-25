@@ -15,7 +15,7 @@
                 name = "full-coverage";
                 checkPhase = ''
                     					echo "-------------------------------------------------------------"
-                      						runhaskell ./Setup.hs configure --builddir=$out/coverage --enable-coverage --enable-tests
+                      						runhaskell ./Setup.hs configure --builddir=$out/coverage --enable-library-coverage  --enable-coverage --enable-tests
                       						runhaskell ./Setup.hs build --builddir=$out/coverage
                       						runhaskell ./Setup.hs test --builddir=$out/coverage
                     					echo "-------------------------------------------------------------"
