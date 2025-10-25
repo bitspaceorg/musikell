@@ -1,14 +1,25 @@
 { ... }:
 {
     perSystem =
-        { self', ... }:
+        {
+            self',
+            pkgs,
+            shell-config,
+            ...
+        }:
         {
             checks.dev-unit = self'.packages.default.overrideAttrs (oldAttrs: {
                 name = "unit-test";
             });
-            checks.stg-full-coverage = self'.packages.default.overrideAttrs (oldAttrs: {
+            checks.stg-coverage = self'.packages.default.overrideAttrs (oldAttrs: {
                 name = "full-coverage";
-                doCoverage = true;
+                checkPhase = ''
+                    					echo "-------------------------------------------------------------"
+                      						runhaskell ./Setup.hs configure --builddir=$out/coverage --enable-coverage --enable-tests
+                      						runhaskell ./Setup.hs build --builddir=$out/coverage
+                      						runhaskell ./Setup.hs test --builddir=$out/coverage
+                    					echo "-------------------------------------------------------------"
+                    				'';
             });
         };
 }
