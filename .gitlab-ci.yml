@@ -17,8 +17,27 @@ feature-check:
   extends: .nix-base
   stage: feature-check
   script:
-    - echo "[MUSIKELL::feature-check] Running checks on merge request..."
+    - echo "[MUSIKELL::feature-check] Running checks and generating coverage data..."
     - nix develop .#stg -c ./utils/run-check.sh stg
+    - |
+      nix develop .#stg -c hpc report \
+        result/coverage/hpc/vanilla/tix/musikell-test/musikell-test.tix \
+        --hpcdir=result/coverage/hpc/vanilla/mix/musikell \
+        --hpcdir=result/coverage/hpc/vanilla/mix/musikell-test \
+        --exclude=Main
+    - echo "[MUSIKELL::feature-check] Generating HTML coverage report..."
+    - |
+      nix develop .#stg -c hpc markup \
+        result/coverage/hpc/vanilla/tix/musikell-test/musikell-test.tix \
+        --hpcdir=result/coverage/hpc/vanilla/mix/musikell \
+        --hpcdir=result/coverage/hpc/vanilla/mix/musikell-test \
+        --exclude=Main \
+        --destdir=hpc-html-report
+  coverage: '/(\d+\.?\d*)% expressions used/'
+  artifacts:
+    paths:
+      - hpc-html-report/
+    expire_in: 1 week
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
 
