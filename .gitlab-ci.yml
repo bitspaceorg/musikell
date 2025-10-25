@@ -26,7 +26,7 @@ feature-check:
         --hpcdir=result/coverage/hpc/vanilla/mix/musikell-test \
         --exclude=Main
     - mkdir -p coverage
-    - cp result/coverage/hpc/vanilla/html/musikell-test coverage/
+    - cp -r result/coverage/hpc/vanilla/html/musikell-test coverage/
   coverage: '/(\d+\.?\d*)% expressions used/'
   artifacts:
     paths:
