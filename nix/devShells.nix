@@ -5,6 +5,7 @@
             pkgs,
             self',
             config,
+            shell-config,
             ...
         }:
         {
