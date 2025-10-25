@@ -22,7 +22,9 @@ playNode :: NodeType -> Unit.Meter -> NodeOut
 playNode node amplitude = nodeOut
     where
         nodeRes = play node
-        wavetableAmp = map (amplitude *) (wavetable nodeRes)
+        maxWave = maximum (map abs (wavetable nodeRes))
+        normalise x = if maxWave > 1.0 then x / maxWave else x
+        wavetableAmp = map (normalise . (amplitude *)) (wavetable nodeRes)
         nodeOut = nodeRes {wavetable = wavetableAmp}
 
 -- For reference - should clean later

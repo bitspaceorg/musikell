@@ -9,4 +9,4 @@ import Musikell.Nodes.Oscilator.In
 main :: IO ()
 main = do
     putStrLn "Executing oscillator node A4 (440hz)"
-    print $ wavetable $ playNode (OscilatorNode $ iOscilator Sine 440 0) 10
+    print $ playNode (OscilatorNode $ iOscilator Sine 440 0) 100
