@@ -19,7 +19,7 @@ feature-check:
   script:
     - echo "[MUSIKELL::feature-check] Running checks on merge request..."
     - nix develop .#stg -c ./utils/run-check.sh stg
-    - nix develop .#stg -c hpc report result/coverage/hpc/vanilla/tix/musikell-test/musikell-test.tix
+    - nix develop .#stg -c hpc report result/coverage/hpc/vanilla/tix/musikell-test/musikell-test.tix --hpcdir=result/coverage/hpc/vanilla/mix/musikell --hpcdir=result/coverage/hpc/vanilla/mix/musikell-test
   coverage: '/(\d+\.?\d*)% expressions used/'
   artifacts:
     paths:
