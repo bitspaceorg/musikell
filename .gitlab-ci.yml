@@ -25,18 +25,10 @@ feature-check:
         --hpcdir=result/coverage/hpc/vanilla/mix/musikell \
         --hpcdir=result/coverage/hpc/vanilla/mix/musikell-test \
         --exclude=Main
-    - echo "[MUSIKELL::feature-check] Generating HTML coverage report..."
-    - |
-      nix develop .#stg -c hpc markup \
-        result/coverage/hpc/vanilla/tix/musikell-test/musikell-test.tix \
-        --hpcdir=result/coverage/hpc/vanilla/mix/musikell \
-        --hpcdir=result/coverage/hpc/vanilla/mix/musikell-test \
-        --exclude=Main \
-        --destdir=hpc-html-report
   coverage: '/(\d+\.?\d*)% expressions used/'
   artifacts:
     paths:
-      - hpc-html-report/
+      - result/coverage/vanilla/html/musikell-test/
     expire_in: 1 week
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
