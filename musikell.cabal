@@ -63,13 +63,26 @@ test-suite musikell-test
   import:           warnings
   default-language: Haskell2010
   ghc-options:      -fhpc
+  other-modules:
+    Musikell.Functions.Base
+    Musikell.Functions.Wave
+    Musikell.Nodes.Base.Base
+    Musikell.Nodes.Base.Descriptor
+    Musikell.Nodes.Base.In
+    Musikell.Nodes.Base.Out
+    Musikell.Nodes.Oscilator.Base
+    Musikell.Nodes.Oscilator.Descriptor
+    Musikell.Nodes.Oscilator.In
+    Musikell.Nodes.Oscilator.Out
+    Musikell.Types.Base
 
-  -- other-modules:
   -- other-extensions:
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test
   main-is:          Main.hs
   build-depends:
-    , base        >=4.17 && <4.20
+    , base              >=4.17 && <4.20
     , musikell
-    , QuickCheck
+    , tasty
+    , tasty-hunit
+    , tasty-quickcheck
