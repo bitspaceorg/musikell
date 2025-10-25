@@ -25,10 +25,12 @@ feature-check:
         --hpcdir=result/coverage/hpc/vanilla/mix/musikell \
         --hpcdir=result/coverage/hpc/vanilla/mix/musikell-test \
         --exclude=Main
+    - mkdir -p coverage
+    - cp result/coverage/hpc/vanilla/html/musikell-test coverage/
   coverage: '/(\d+\.?\d*)% expressions used/'
   artifacts:
     paths:
-      - result/coverage/hpc/vanilla/html/musikell-test
+      - coverage/
     expire_in: 1 week
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
