@@ -8,14 +8,7 @@
             ...
         }:
         let
-            musikell-package = (shell-config.ghcpkgs.callCabal2nix musikell.name inputs.self { }).overrideAttrs (old: {
-                buildInputs = old.buildInputs or [ ] ++ [
-                    shell-config.ghcpkgs.happy
-                    shell-config.ghcpkgs.alex
-                    pkgs.pkg-config
-
-                ];
-            });
+            musikell-package = shell-config.ghcpkgs.callCabal2nix musikell.name inputs.self { };
         in
         {
             packages.default = musikell-package;

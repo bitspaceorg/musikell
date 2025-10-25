@@ -13,13 +13,18 @@
             });
             checks.stg-coverage = self'.packages.default.overrideAttrs (oldAttrs: {
                 name = "full-coverage";
-                checkPhase = ''
-                    					echo "-------------------------------------------------------------"
-                      						runhaskell ./Setup.hs configure --builddir=$out/coverage --enable-library-coverage  --enable-coverage --enable-tests
-                      						runhaskell ./Setup.hs build --builddir=$out/coverage
-                      						runhaskell ./Setup.hs test --builddir=$out/coverage
-                    					echo "-------------------------------------------------------------"
-                    				'';
+                configureFlags = [
+                    "--enable-coverage"
+                    "--enable-tests"
+                ];
+                # add doc to seperate haddock
+                outputs = [ "out" ];
+                installPhase = ''
+                                      				  runHook preInstall
+                                      				  mkdir -p $out/coverage
+                    				  					  cp -r dist/hpc $out/coverage/
+                                      				  runHook postInstall
+                                      				'';
             });
         };
 }
