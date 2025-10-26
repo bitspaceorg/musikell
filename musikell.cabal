@@ -28,15 +28,20 @@ library
   import:           warnings
   exposed-modules:
     Musikell.Functions.Base
+    Musikell.Functions.Oscillator.Base
+    Musikell.Functions.Oscillator.Sawtooth
+    Musikell.Functions.Oscillator.Sine
+    Musikell.Functions.Oscillator.Square
+    Musikell.Functions.Oscillator.Triangle
     Musikell.Functions.Wave
     Musikell.Nodes.Base.Base
     Musikell.Nodes.Base.Descriptor
     Musikell.Nodes.Base.In
     Musikell.Nodes.Base.Out
-    Musikell.Nodes.Oscilator.Base
-    Musikell.Nodes.Oscilator.Descriptor
-    Musikell.Nodes.Oscilator.In
-    Musikell.Nodes.Oscilator.Out
+    Musikell.Nodes.Oscillator.Base
+    Musikell.Nodes.Oscillator.Descriptor
+    Musikell.Nodes.Oscillator.In
+    Musikell.Nodes.Oscillator.Out
     Musikell.Types.Base
 
   -- other-modules:
@@ -67,21 +72,26 @@ test-suite musikell-test
   main-is:          Main.hs
   other-modules:
     Musikell.Functions.Base
+    Musikell.Functions.Oscillator.Base
+    Musikell.Functions.Oscillator.Sawtooth
+    Musikell.Functions.Oscillator.Sine
+    Musikell.Functions.Oscillator.Square
+    Musikell.Functions.Oscillator.Triangle
     Musikell.Functions.Wave
     Musikell.Nodes.Base.Base
     Musikell.Nodes.Base.Descriptor
     Musikell.Nodes.Base.In
     Musikell.Nodes.Base.Out
-    Musikell.Nodes.Oscilator.Base
-    Musikell.Nodes.Oscilator.Descriptor
-    Musikell.Nodes.Oscilator.In
-    Musikell.Nodes.Oscilator.Out
+    Musikell.Nodes.Oscillator.Base
+    Musikell.Nodes.Oscillator.Descriptor
+    Musikell.Nodes.Oscillator.In
+    Musikell.Nodes.Oscillator.Out
     Musikell.Types.Base
     Test.Musikell.Functions.Base
     Test.Musikell.Functions.Wave
     Test.Musikell.Nodes.Base
     Test.Musikell.Nodes.BaseNode
-    Test.Musikell.Nodes.OscilatorNode
+    Test.Musikell.Nodes.OscillatorNode
 
   build-depends:
     , base              >=4.17 && <4.20

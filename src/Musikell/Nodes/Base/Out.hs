@@ -3,12 +3,12 @@ module Musikell.Nodes.Base.Out (
     NodeOutType (..),
 ) where
 
-import Musikell.Nodes.Oscilator.Out
+import Musikell.Nodes.Oscillator.Out
 
 import qualified Musikell.Types.Base as Unit
 
 -- change it to data
-newtype NodeOutType = OscilatorOutNode OscilatorOut deriving (Show)
+newtype NodeOutType = OscillatorOutNode OscillatorOut deriving (Show)
 data NodeOut = NodeOut
     { wavetable :: [Unit.Meter],
       node :: NodeOutType

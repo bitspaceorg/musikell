@@ -5,7 +5,7 @@ module Musikell.Nodes.Base.Base (
 
 import Musikell.Nodes.Base.In
 import Musikell.Nodes.Base.Out
-import Musikell.Nodes.Oscilator.Base
+import Musikell.Nodes.Oscillator.Base
 
 import qualified Musikell.Types.Base as Unit
 
@@ -15,9 +15,9 @@ class Playable a where
     play :: a -> NodeOut
 
 instance Playable NodeType where
-    play (OscilatorNode oscilator) = playOscilator oscilator
+    play (OscillatorNode oscillator) = playOscillator oscillator
 
--- Usage: playNode (OscilatorNode $ iOscilator Sine 440 0) 10
+-- Usage: playNode (OscillatorNode $ iOscillator Sine 440 0) 10
 playNode :: NodeType -> Unit.Meter -> NodeOut
 playNode node amplitude = nodeOut
     where
@@ -28,19 +28,19 @@ playNode node amplitude = nodeOut
         nodeOut = nodeRes {wavetable = wavetableAmp}
 
 -- For reference - should clean later
--- playNode (OscilatorNode iOscilator ....) 10
+-- playNode (OscillatorNode iOscillator ....) 10
 -- -> NodeIn {
 -- 		amplitude :: Unit.Meter
--- 		node :: OscilatorIn
+-- 		node :: OscillatorIn
 -- }
 -- or
 -- -> NodeIn {
 -- 		amplitude :: Unit.Meter
--- 		node :: OscilatorIn {
+-- 		node :: OscillatorIn {
 -- 			wavetable :: [ Unit.Meter ]
 -- 	}
 -- }
 -- -> NodeOut {
 -- 		wavetable :: [ Unit.Meter ]
--- 		node :: OscilatorOut
+-- 		node :: OscillatorOut
 -- }

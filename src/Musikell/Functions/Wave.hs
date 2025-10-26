@@ -1,18 +1,15 @@
 module Musikell.Functions.Wave (
-    wave,
     wavetable,
 ) where
 
-import Musikell.Functions.Base
+import Musikell.Types.Base as Unit
 
-import qualified Musikell.Types.Base as Unit
-
-wave :: Unit.Hz -> Unit.Radian -> Unit.Second -> Unit.Meter
-wave frequency phase time = sin (angularFrequency frequency * time + phase)
-
-wavetable :: Unit.Hz -> Unit.Radian -> [Unit.Meter]
-wavetable frequency phase = map waveform times
+wavetable ::
+    (Unit.Hz -> Unit.Radian -> Unit.Second -> Unit.Meter) ->
+    Unit.Hz ->
+    Unit.Radian ->
+    [Unit.Meter]
+wavetable waveform freq phase = map (waveform freq phase) times
     where
         duration = 1
         times = [0, (1 / Unit.defaultSampleRate) .. duration]
-        waveform = wave frequency phase
