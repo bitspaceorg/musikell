@@ -1,4 +1,5 @@
 module Musikell.Functions.Wave (
+    wave,
     wavetable,
 ) where
 
@@ -13,5 +14,5 @@ wavetable :: Unit.Hz -> Unit.Radian -> [Unit.Meter]
 wavetable frequency phase = map waveform times
     where
         duration = 1
-        times = [0, (1 / defaultSampleRate) .. duration]
+        times = [0, (1 / Unit.defaultSampleRate) .. duration]
         waveform = wave frequency phase

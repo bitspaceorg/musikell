@@ -4,6 +4,7 @@ module Musikell.Types.Base (
     Second,
     Radian,
     AngularFrequency,
+    defaultSampleRate,
 ) where
 
 type Hz = Float
@@ -12,3 +13,6 @@ type Second = Float
 type Radian = Float
 
 type AngularFrequency = Radian
+
+defaultSampleRate :: Hz
+defaultSampleRate = 44100

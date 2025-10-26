@@ -10,6 +10,7 @@
         {
             checks.dev-unit = self'.packages.default.overrideAttrs (oldAttrs: {
                 name = "unit-test";
+                configureFlags = [ "--enable-tests" ];
             });
             checks.stg-coverage = self'.packages.default.overrideAttrs (oldAttrs: {
                 name = "full-coverage";

@@ -77,6 +77,11 @@ test-suite musikell-test
     Musikell.Nodes.Oscilator.In
     Musikell.Nodes.Oscilator.Out
     Musikell.Types.Base
+    Test.Musikell.Functions.Base
+    Test.Musikell.Functions.Wave
+    Test.Musikell.Nodes.Base
+    Test.Musikell.Nodes.BaseNode
+    Test.Musikell.Nodes.OscilatorNode
 
   build-depends:
     , base              >=4.17 && <4.20

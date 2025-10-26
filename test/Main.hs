@@ -1,4 +1,17 @@
-module Main (main) where
+module Main where
+
+import Test.Tasty
+
+import qualified Test.Musikell.Functions.Base as FunctionTests
+import qualified Test.Musikell.Nodes.Base as NodeTests
 
 main :: IO ()
-main = putStrLn "Test suite not yet implemented."
+main = defaultMain tests
+
+tests :: TestTree
+tests =
+    testGroup
+        "All Tests"
+        [ FunctionTests.tests,
+          NodeTests.tests
+        ]
