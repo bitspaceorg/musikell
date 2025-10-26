@@ -21,7 +21,7 @@
             perSystem =
                 { pkgs, ... }:
                 let
-                    ghc = "ghc94";
+                    ghc = "ghc98";
                 in
                 {
                     _module.args = {

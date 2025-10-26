@@ -1,7 +1,12 @@
 { inputs, ... }:
 {
     perSystem =
-        { musikell, shell-config, ... }:
+        {
+            pkgs,
+            musikell,
+            shell-config,
+            ...
+        }:
         let
             musikell-package = shell-config.ghcpkgs.callCabal2nix musikell.name inputs.self { };
         in

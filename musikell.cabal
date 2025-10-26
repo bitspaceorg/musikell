@@ -27,10 +27,26 @@ custom-setup
 library
   import:           warnings
   exposed-modules:
+    Musikell.Functions.Base
+    Musikell.Functions.Oscillator.Base
+    Musikell.Functions.Oscillator.Sawtooth
+    Musikell.Functions.Oscillator.Sine
+    Musikell.Functions.Oscillator.Square
+    Musikell.Functions.Oscillator.Triangle
+    Musikell.Functions.Wave
+    Musikell.Nodes.Base.Base
+    Musikell.Nodes.Base.Descriptor
+    Musikell.Nodes.Base.In
+    Musikell.Nodes.Base.Out
+    Musikell.Nodes.Oscillator.Base
+    Musikell.Nodes.Oscillator.Descriptor
+    Musikell.Nodes.Oscillator.In
+    Musikell.Nodes.Oscillator.Out
+    Musikell.Types.Base
 
   -- other-modules:
   -- other-extensions:
-  build-depends:    base ^>=4.17.2.1
+  build-depends:    base >=4.17 && <4.20
   hs-source-dirs:   src
   default-language: Haskell2010
 
@@ -41,7 +57,7 @@ executable musikell
   -- other-modules:
   -- other-extensions:
   build-depends:
-    , base      ^>=4.17.2.1
+    , base      >=4.17 && <4.20
     , musikell
 
   hs-source-dirs:   exe
@@ -50,12 +66,36 @@ executable musikell
 test-suite musikell-test
   import:           warnings
   default-language: Haskell2010
-
-  -- other-modules:
-  -- other-extensions:
+  ghc-options:      -fhpc
   type:             exitcode-stdio-1.0
-  hs-source-dirs:   test
+  hs-source-dirs:   test src
   main-is:          Main.hs
+  other-modules:
+    Musikell.Functions.Base
+    Musikell.Functions.Oscillator.Base
+    Musikell.Functions.Oscillator.Sawtooth
+    Musikell.Functions.Oscillator.Sine
+    Musikell.Functions.Oscillator.Square
+    Musikell.Functions.Oscillator.Triangle
+    Musikell.Functions.Wave
+    Musikell.Nodes.Base.Base
+    Musikell.Nodes.Base.Descriptor
+    Musikell.Nodes.Base.In
+    Musikell.Nodes.Base.Out
+    Musikell.Nodes.Oscillator.Base
+    Musikell.Nodes.Oscillator.Descriptor
+    Musikell.Nodes.Oscillator.In
+    Musikell.Nodes.Oscillator.Out
+    Musikell.Types.Base
+    Test.Musikell.Functions.Base
+    Test.Musikell.Functions.Wave
+    Test.Musikell.Nodes.Base
+    Test.Musikell.Nodes.BaseNode
+    Test.Musikell.Nodes.OscillatorNode
+
   build-depends:
-    , base      ^>=4.17.2.1
+    , base              >=4.17 && <4.20
     , musikell
+    , tasty
+    , tasty-hunit
+    , tasty-quickcheck

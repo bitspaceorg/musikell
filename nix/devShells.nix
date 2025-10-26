@@ -5,10 +5,12 @@
             pkgs,
             self',
             config,
+            shell-config,
             ...
         }:
         {
             devShells.dev = pkgs.mkShell {
+                packages = [ pkgs.cabal-install ];
                 inputsFrom = [
                     self'.packages.default
                     self'.devShells.treefmt
