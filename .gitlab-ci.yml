@@ -12,6 +12,7 @@ stages:
     GIT_DEPTH: 0
   before_script:
     - export NIX_CONFIG="experimental-features = nix-command flakes"
+    - nix develop .#stg -c cachix use musikell
 
 feature-check:
   extends: .nix-base
