@@ -43,6 +43,7 @@ staging-build:
     - echo "[MUSIKELL::staging-branch] Building binary for staging..."
     - nix develop .#stg -c ./utils/run-check.sh stg
     - nix build .# --out-link result
+    - nix develop .#stg -c cachix push musikell result
     - echo "[MUSIKELL::staging-branch] Build successful. Preparing artifacts..."
     - mkdir -p artifacts/bin
     - cp result/bin/musikell artifacts/bin/
@@ -77,6 +78,7 @@ production-build:
     - echo "[MUSIKELL::production-release] Building binary for version $CI_COMMIT_TAG..."
     - nix develop .#stg -c ./utils/run-check.sh stg
     - nix build .# --out-link result
+    - nix develop .#stg -c cachix push musikell result
     - echo "[MUSIKELL::production-release] Build successful. Preparing artifacts..."
     - mkdir -p artifacts/bin
     - cp result/bin/musikell artifacts/bin/
