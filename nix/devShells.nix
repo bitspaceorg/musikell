@@ -24,6 +24,7 @@
                     pkgs.gnused
                     pkgs.curl
                     pkgs.gitlab-release-cli
+                    pkgs.cachix
                 ];
             };
         };
