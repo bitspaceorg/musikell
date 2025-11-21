@@ -18,6 +18,11 @@
                         width = 180;
                         indent = 4;
                     };
+                    prettier = {
+                        enable = true;
+                        includes = [ "docs/**/*.mdx" ];
+                        excludes = [ ];
+                    };
                 };
                 settings.formatter = {
                     fourmolu = {
