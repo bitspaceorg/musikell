@@ -28,7 +28,7 @@
                         musikell = {
                             name = "musikell";
                             version = "0.0.1";
-                            description = "Music + Haskell + engine = Musikell";
+                            description = "Music + Haskell + Engine = Musikell";
                         };
                         shell-config = {
                             inherit ghc;
