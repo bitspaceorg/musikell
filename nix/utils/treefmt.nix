@@ -11,7 +11,8 @@
                 programs = {
                     fourmolu.enable = true;
                     hlint.enable = true;
-                    cabal-fmt.enable = true;
+                    shellcheck.enable = true;
+                    yamlfmt.enable = true;
                     nixfmt = {
                         enable = true;
                         strict = true;
@@ -20,8 +21,7 @@
                     };
                     prettier = {
                         enable = true;
-                        includes = [ "docs/**/*.mdx" ];
-                        excludes = [ ];
+                        excludes = [ "docs" ];
                     };
                 };
                 settings.formatter = {
