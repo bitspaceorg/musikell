@@ -7,6 +7,7 @@
             treefmt.config = {
                 projectRootFile = "flake.nix";
                 flakeCheck = false;
+                settings.global.excludes = [ "docs/data.json" ];
                 package = pkgs.treefmt;
                 programs = {
                     fourmolu.enable = true;
