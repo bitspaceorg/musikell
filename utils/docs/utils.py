@@ -5,6 +5,17 @@ import frontmatter
 REQUIRED_FIELDS = ["title", "description", "slug", "author", "date"]
 
 
+def slug_from_path(file_path):
+    """Derive expected slug from file path.
+
+    docs/reference/core/graph.mdx -> reference-core-graph
+    docs/index.mdx -> index
+    docs/guide.mdx -> guide
+    """
+    rel = file_path.removeprefix("docs/").removesuffix(".mdx")
+    return rel.replace("/", "-")
+
+
 def parse_file(file_path, base_url):
     with open(file_path, "r", encoding="utf-8") as f:
         post = frontmatter.load(f)
@@ -13,11 +24,18 @@ def parse_file(file_path, base_url):
         if field not in post.metadata or post.metadata.get(field) in [None, ""]:
             raise ValueError(f"Missing required field '{field}' in {file_path}")
 
+    slug = post.metadata["slug"]
+    expected_slug = slug_from_path(file_path)
+    if slug != expected_slug:
+        raise ValueError(
+            f"Slug mismatch in {file_path}: got '{slug}', expected '{expected_slug}'"
+        )
+
     doc = {
         "title": post.metadata["title"],
         "description": post.metadata["description"],
         "url": f"{base_url}/{file_path}",
-        "slug": post.metadata["slug"],
+        "slug": slug,
         "author": post.metadata["author"],
         "date": post.metadata["date"],
         "tags": post.metadata.get("tags", []),
