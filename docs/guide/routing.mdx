@@ -1,0 +1,193 @@
+---
+title: "Routing"
+description: "Inputs, outputs, groups, feedback edges, and signal flow in Musikell"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "guide/routing"
+tags: ["guide", "routing", "io", "groups", "feedback"]
+---
+
+# Routing
+
+## What You'll Learn
+
+- How to declare inputs and outputs
+- How to organize nodes into groups
+- How feedback edges work for creating delay loops
+- How to mix multiple signals
+
+## Prerequisites
+
+- [Nodes](nodes.mdx) -- understanding of the three node types
+
+## Inputs and Outputs
+
+Every Musikell program declares at least one input and one output. These are the entry and exit points for audio data.
+
+### Input
+
+The `input` keyword declares a named input node that reads from stdin:
+
+```mkl
+input stdin
+```
+
+You can declare multiple named inputs for multi-channel scenarios:
+
+```mkl
+input mic
+input guitar
+```
+
+Each input reads a separate channel from the PCM stream on stdin.
+
+### Output
+
+The `output` keyword declares which node's signal is written to stdout:
+
+```mkl
+output mix
+```
+
+The output node is the terminal node in the graph. Only nodes reachable from an output are included in the execution plan.
+
+## Groups
+
+Groups organize related nodes into named sub-graphs. They act as namespaces and can be referenced as a unit.
+
+### Syntax
+
+```mkl
+group name {
+    -- nodes declared here
+}
+```
+
+### Example
+
+```mkl
+group effects {
+    filtered = Manipulative<input>.Filter<LP>(cutoff=1000, resonance=0.7)
+    delayed = Manipulative<filtered>.Delay(ms=250)
+    reverbed = Manipulative<delayed>.Reverb(room=0.6, decay=1.5, mix=0.3)
+}
+```
+
+Nodes inside a group can be referenced from outside using dot notation:
+
+```mkl
+output effects.reverbed
+```
+
+### Nested Groups
+
+Groups can be nested:
+
+```mkl
+group drum_chain {
+    group parallel {
+        dry = Manipulative<drums>.Gain(level=0.6)
+        compressed = Manipulative<drums>.Dynamics<Compressor>(
+            threshold=-10, ratio=20, attack=1, release=50, makeup=6
+        )
+    }
+    mix = Manipulative<drum_chain.parallel.dry, drum_chain.parallel.compressed>.Mix()
+}
+```
+
+### Auto-Mixing
+
+When a group is referenced as a single input, its outputs are automatically mixed:
+
+```mkl
+group instruments {
+    bass = Creational.Oscillator<Sine>(freq=55)
+    lead = Creational.Oscillator<Saw>(freq=440)
+}
+
+-- instruments is auto-mixed into a single signal
+gained = Manipulative<instruments>.Gain(level=0.5)
+```
+
+## Feedback Edges
+
+A feedback edge creates a cycle in the graph by reading a node's output from the **previous** block. This introduces exactly one block of delay (256 samples at 44100 Hz = ~5.8 ms).
+
+### Syntax
+
+Prefix a node reference with `~` to create a feedback edge:
+
+```mkl
+~node_name
+```
+
+### Example: Feedback Delay
+
+```mkl
+input stdin
+delay = Manipulative<stdin, ~delay>.Delay(ms=250, feedback=0.3)
+output delay
+```
+
+Here, `~delay` reads the `delay` node's output from the previous block. The `Delay` kernel mixes the current input with the fed-back signal, creating a repeating echo.
+
+### Example: Subtle Saturation Loop
+
+```mkl
+saturate = Manipulative<input, ~saturate>.Overdrive(
+    gain=1.1,
+    tone=0.3,
+    mix=0.05
+)
+```
+
+A small amount of the saturated output is fed back in, adding harmonic richness that builds subtly over time.
+
+### Rules
+
+- Feedback edges are resolved during graph construction and do not break the topological sort.
+- The fed-back buffer contains the output from the immediately preceding block.
+- On the very first block, the feedback buffer is initialized to silence (all zeros).
+
+## Mixing Multiple Signals
+
+The `Mix` kernel combines two or more signals into one:
+
+```mkl
+a = Creational.Oscillator<Sine>(freq=440)
+b = Creational.Oscillator<Saw>(freq=220)
+c = Creational.Noise<White>(seed=42)
+
+mix = Manipulative<a, b, c>.Mix()
+```
+
+All input signals are summed sample-by-sample. You typically want to control levels with `Gain` before mixing to avoid clipping.
+
+## A Complete Routing Example
+
+```mkl
+-- Vocal processing with parallel wet/dry routing
+
+input mic
+
+-- Dry path
+dry = Manipulative<mic>.Gain(level=0.7)
+
+-- Wet path: filter then reverb
+filtered = Manipulative<mic>.Filter<HP>(cutoff=80, resonance=0.5)
+reverbed = Manipulative<filtered>.Reverb(room=0.6, decay=1.5, mix=1.0)
+wet = Manipulative<reverbed>.Gain(level=0.3)
+
+-- Combine
+mix = Manipulative<dry, wet>.Mix()
+output mix
+```
+
+## Summary
+
+Inputs and outputs declare the entry and exit points of the audio graph. Groups organize nodes into namespaces with dot-notation access. Feedback edges (prefixed with `~`) allow cycles by reading the previous block's output. The `Mix` kernel combines multiple signals.
+
+## Next Steps
+
+- [Effects](effects.mdx) -- filters, reverb, delay, and dynamics in detail
+- [Patterns](patterns.mdx) -- beat sequencing and timing

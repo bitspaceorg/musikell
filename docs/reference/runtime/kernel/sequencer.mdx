@@ -1,0 +1,72 @@
+---
+title: "Sequencer Kernel"
+description: "Beat pattern sequencer for rhythmic gating of audio signals"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-sequencer"
+tags: ["reference", "runtime", "kernel", "sequencer"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Sequencer.hs"
+---
+
+## Purpose
+
+Beat sequencer that gates an input signal based on a rhythmic pattern string. The pattern cycles at a given BPM and subdivision, producing rhythmic amplitude modulation.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Sequencer`
+
+---
+
+## `mkBeatSequencer`
+
+**KernelId:** `"beat"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** Yes (sample position IORef)
+
+```haskell
+mkBeatSequencer :: String -> Double -> Int -> BlockSize -> SampleRate -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter    | Type         | Description                                                                                                            |
+| ------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `pattern`    | `String`     | Rhythm pattern string. Characters: `x`/`X` = full volume (1.0), `o`/`O` = soft (0.5), `_` or any other = silence (0.0) |
+| `bpm`        | `Double`     | Tempo in beats per minute                                                                                              |
+| `division`   | `Int`        | Subdivision per beat (e.g. 4 for sixteenth notes at the given BPM)                                                     |
+| `_blockSize` | `BlockSize`  | Block size (currently unused, reserved)                                                                                |
+| `sr`         | `SampleRate` | Sample rate                                                                                                            |
+
+### Behavior
+
+For each sample, computes the current step index from the global sample position:
+
+```
+samplesPerStep = sampleRate * 60 / bpm / division
+stepIdx = (globalSample / samplesPerStep) mod patternLength
+gain = patternGain[stepIdx]
+output[i] = input[i] * gain
+```
+
+The pattern cycles indefinitely. Step durations are computed once at construction time.
+
+### Pattern Format
+
+| Character              | Gain         |
+| ---------------------- | ------------ |
+| `x`, `X`               | 1.0 (full)   |
+| `o`, `O`               | 0.5 (soft)   |
+| `_` (or anything else) | 0.0 (silent) |
+
+## Example
+
+```mkl
+oscillator.sine(440) -> beat("x_x_xox_", 120, 4) -> output
+```
+
+This creates an eighth-note pattern at 120 BPM with a soft hit on beat 3.5.
+
+## Usage Notes
+
+- Stateful kernel: must be created via `mkBeatSequencer` in IO. Not included in `builtinRegistry`.
+- The gain lookup uses `(!!)` (list indexing) per sample, which is O(n) in pattern length. For very long patterns this may be a performance concern.
+- Pattern length determines the cycle length: `patternLength * samplesPerStep` samples per full cycle.
+- The global sample counter accumulates indefinitely. For very long running times, integer overflow is theoretically possible but practically unlikely at standard sample rates.

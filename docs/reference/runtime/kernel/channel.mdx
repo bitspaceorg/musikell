@@ -1,0 +1,101 @@
+---
+title: "Channel Kernels"
+description: "Channel split, merge, and mono-to-stereo manipulation kernels"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-channel"
+tags: ["reference", "runtime", "kernel", "channel"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Channel.hs"
+---
+
+## Purpose
+
+Channel utility kernels for splitting interleaved multi-channel data into mono, merging mono channels into interleaved stereo, and duplicating a mono signal to stereo.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Channel`
+
+---
+
+## `channelSplitKernel`
+
+**KernelId:** `"channel.split"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** No
+
+```haskell
+channelSplitKernel :: Int -> Int -> KernelSpec
+```
+
+### Parameters
+
+| Parameter       | Type  | Description                                          |
+| --------------- | ----- | ---------------------------------------------------- |
+| `channel`       | `Int` | Channel index to extract (0 = left, 1 = right, etc.) |
+| `totalChannels` | `Int` | Total number of interleaved channels in the input    |
+
+### Behavior
+
+Extracts a single channel from interleaved multi-channel data:
+
+```
+output[i] = input[i * totalChannels + channel]
+```
+
+The output buffer size determines the number of frames to extract.
+
+---
+
+## `channelMergeKernel`
+
+**KernelId:** `"channel.merge"`
+**Inputs:** 2 | **Outputs:** 1 | **Stateful:** No
+
+```haskell
+channelMergeKernel :: KernelSpec
+```
+
+### Behavior
+
+Merges two mono input buffers into interleaved stereo output:
+
+```
+output[i * 2]     = left[i]
+output[i * 2 + 1] = right[i]
+```
+
+The first input is treated as the left channel, the second as the right channel. The output buffer must be twice the size of each input buffer.
+
+---
+
+## `monoToStereoKernel`
+
+**KernelId:** `"mono_to_stereo"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** No
+
+```haskell
+monoToStereoKernel :: KernelSpec
+```
+
+### Behavior
+
+Duplicates a mono signal into interleaved stereo:
+
+```
+output[i * 2]     = input[i]
+output[i * 2 + 1] = input[i]
+```
+
+The output buffer must be twice the size of the input buffer.
+
+## Example
+
+```mkl
+input -> channel.split(0, 2) -> filter.lowpass(1000, 0.7) -> output
+[left, right] -> channel.merge -> output
+input -> mono_to_stereo -> output
+```
+
+## Usage Notes
+
+- `channelMergeKernel` and `monoToStereoKernel` are stateless and included in `builtinRegistry` by default.
+- `channelSplitKernel` requires parameters (channel index, total channels) and must be constructed per use. It is NOT in `builtinRegistry`.
+- The output buffer for merge and mono-to-stereo operations must be pre-allocated at 2x the frame count. The scheduler is responsible for ensuring correct buffer sizes.

@@ -1,0 +1,153 @@
+---
+title: "Dynamics Kernels"
+description: "Compressor, limiter, and noise gate dynamics processing kernels"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-dynamics"
+tags: ["reference", "runtime", "kernel", "dynamics", "compressor", "limiter", "gate"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Dynamics.hs"
+---
+
+## Purpose
+
+Dynamics processing kernels: feed-forward compressor with soft knee, brickwall limiter, and noise gate. All use envelope-following with configurable attack/release times.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Dynamics`
+
+---
+
+## `mkCompressor`
+
+**KernelId:** `"compressor"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** Yes (envelope follower IORef)
+
+```haskell
+mkCompressor :: Double -> Double -> Double -> Double -> Double -> SampleRate -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter   | Type         | Description                                    |
+| ----------- | ------------ | ---------------------------------------------- |
+| `threshold` | `Double`     | Threshold in dB above which compression begins |
+| `ratio`     | `Double`     | Compression ratio (e.g. 4.0 = 4:1)             |
+| `attack`    | `Double`     | Attack time in seconds                         |
+| `release`   | `Double`     | Release time in seconds                        |
+| `knee`      | `Double`     | Soft knee width in dB (0 = hard knee)          |
+| `sr`        | `SampleRate` | Sample rate                                    |
+
+### Behavior
+
+Feed-forward compressor with soft-knee gain computation:
+
+1. **Envelope follower**: smooths the absolute input signal with attack/release coefficients
+2. **Gain computation**:
+    - Below threshold (by `knee/2` dB): no gain reduction
+    - Above threshold (by `knee/2` dB): full ratio compression: `gainDb = overDb * (1/ratio - 1)`
+    - In the soft knee region: quadratic interpolation between no compression and full compression
+3. **Output**: `output[i] = input[i] * dbToLin(gainDb)`
+
+---
+
+## `mkLimiter`
+
+**KernelId:** `"limiter"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** Yes (envelope follower IORef)
+
+```haskell
+mkLimiter :: Double -> Double -> SampleRate -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter   | Type         | Description             |
+| ----------- | ------------ | ----------------------- |
+| `threshold` | `Double`     | Threshold in dB         |
+| `release`   | `Double`     | Release time in seconds |
+| `sr`        | `SampleRate` | Sample rate             |
+
+### Behavior
+
+Brickwall limiter with instant attack. The envelope tracks the peak absolute value:
+
+```
+envelope = max(|input|, release_coeff * envelope)
+gain = if envelope > threshold_linear then threshold_linear / envelope else 1.0
+output[i] = input[i] * gain
+```
+
+The threshold is converted from dB to linear amplitude at construction time.
+
+---
+
+## `mkGate`
+
+**KernelId:** `"gate"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** Yes (envelope follower IORef)
+
+```haskell
+mkGate :: Double -> Double -> Double -> SampleRate -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter   | Type         | Description             |
+| ----------- | ------------ | ----------------------- |
+| `threshold` | `Double`     | Threshold in dB         |
+| `attack`    | `Double`     | Attack time in seconds  |
+| `release`   | `Double`     | Release time in seconds |
+| `sr`        | `SampleRate` | Sample rate             |
+
+### Behavior
+
+Noise gate that silences signal below the threshold. The envelope follower uses attack/release smoothing:
+
+```
+gate = if envelope > threshold_linear then 1.0 else 0.0
+output[i] = input[i] * gate
+```
+
+The threshold is converted from dB to linear amplitude at construction time.
+
+---
+
+## Helper Functions
+
+### `timeToCoeff`
+
+```haskell
+timeToCoeff :: Double -> SampleRate -> Float
+```
+
+Convert a time constant in seconds to a one-pole filter coefficient: `exp(-1 / (time * sampleRate))`.
+
+### `linToDb`
+
+```haskell
+linToDb :: Float -> Float
+```
+
+Convert linear amplitude to decibels: `20 * log10(max(x, 1e-10))`. The floor at `1e-10` prevents `-Infinity`.
+
+### `dbToLin`
+
+```haskell
+dbToLin :: Float -> Float
+```
+
+Convert decibels to linear amplitude: `10 ** (x / 20)`.
+
+## Example
+
+```mkl
+input -> compressor(-20, 4.0, 0.01, 0.1, 6.0) -> output
+input -> limiter(-1.0, 0.05) -> output
+input -> gate(-40, 0.001, 0.05) -> output
+```
+
+## Usage Notes
+
+- All three kernels are stateful and must be created via their `mk*` constructors. Not included in `builtinRegistry`.
+- Envelope states are flushed through `flushDenormals` to prevent subnormal float CPU penalties in feedback paths.
+- Attack and release parameters are in seconds, not milliseconds.
+- The compressor applies gain reduction only; it does not include makeup gain. Chain with `gainKernel` for makeup.

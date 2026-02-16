@@ -1,0 +1,132 @@
+---
+title: "Oscillator Kernels"
+description: "PolyBLEP band-limited oscillators: sine, square, sawtooth, triangle"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-oscillator"
+tags: ["reference", "runtime", "kernel", "oscillator", "polyblep"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Oscillator.hs"
+---
+
+## Purpose
+
+Band-limited oscillator kernels using PolyBLEP (Polynomial Band-Limited Step) anti-aliasing. PolyBLEP corrects discontinuities in naive waveforms by applying a polynomial correction near transitions, eliminating audible aliasing artifacts without requiring wavetables.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Oscillator`
+
+---
+
+## `mkOscillatorSine`
+
+**KernelId:** `"oscillator.sine"`
+**Inputs:** 0 | **Outputs:** 1 | **Stateful:** Yes (phase IORef)
+
+```haskell
+mkOscillatorSine :: Double -> SampleRate -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter | Type         | Description                     |
+| --------- | ------------ | ------------------------------- |
+| `freq`    | `Double`     | Frequency in Hz                 |
+| `sr`      | `SampleRate` | Sample rate (e.g. 44100, 48000) |
+
+### Behavior
+
+Pure sinusoid with no aliasing by nature. Phase increments by `freq / sr` per sample. Output is `sin(2 * pi * phase)`. Phase wraps at 1.0 to prevent floating-point drift.
+
+---
+
+## `mkOscillatorSquare`
+
+**KernelId:** `"oscillator.square"`
+**Inputs:** 0 | **Outputs:** 1 | **Stateful:** Yes (phase IORef)
+
+```haskell
+mkOscillatorSquare :: Double -> SampleRate -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter | Type         | Description     |
+| --------- | ------------ | --------------- |
+| `freq`    | `Double`     | Frequency in Hz |
+| `sr`      | `SampleRate` | Sample rate     |
+
+### Behavior
+
+Naive square wave (+1 for first half of period, -1 for second half) with PolyBLEP corrections applied at both transitions (0.0 and 0.5 phase). This smooths the discontinuities to reduce aliasing.
+
+---
+
+## `mkOscillatorSawtooth`
+
+**KernelId:** `"oscillator.sawtooth"`
+**Inputs:** 0 | **Outputs:** 1 | **Stateful:** Yes (phase IORef)
+
+```haskell
+mkOscillatorSawtooth :: Double -> SampleRate -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter | Type         | Description     |
+| --------- | ------------ | --------------- |
+| `freq`    | `Double`     | Frequency in Hz |
+| `sr`      | `SampleRate` | Sample rate     |
+
+### Behavior
+
+Naive sawtooth (linear ramp from -1 to +1) with PolyBLEP correction at the discontinuity where the wave wraps from +1 back to -1.
+
+---
+
+## `mkOscillatorTriangle`
+
+**KernelId:** `"oscillator.triangle"`
+**Inputs:** 0 | **Outputs:** 1 | **Stateful:** Yes (phase IORef, integrator IORef)
+
+```haskell
+mkOscillatorTriangle :: Double -> SampleRate -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter | Type         | Description     |
+| --------- | ------------ | --------------- |
+| `freq`    | `Double`     | Frequency in Hz |
+| `sr`      | `SampleRate` | Sample rate     |
+
+### Behavior
+
+Triangle is the integral of a square wave. The kernel generates a band-limited square (with PolyBLEP), then applies leaky integration with a scale factor of `4 * freq / sr`. A soft leak coefficient of `0.999` prevents DC drift.
+
+---
+
+## Internal: `polyBLEP`
+
+```haskell
+polyBLEP :: Double -> Double -> Double
+```
+
+PolyBLEP correction function. Given normalised phase `t` in [0,1) and phase increment `dt`:
+
+- When `t < dt` (near start of period): applies quadratic correction
+- When `t > 1 - dt` (near end of period): applies quadratic correction
+- Otherwise: returns 0.0
+
+Marked `INLINE` for use in tight per-sample loops.
+
+## Example
+
+```mkl
+oscillator.sine(440) -> gain(0.8) -> output
+oscillator.square(220) -> filter.lowpass(1000, 0.7) -> output
+```
+
+## Usage Notes
+
+- All oscillator kernels are stateful (they maintain phase via `IORef`) and must be created with their `mk*` constructors in IO. They are NOT included in `builtinRegistry`.
+- Phase is stored as `Double` for precision; output samples are converted to `Float` via `realToFrac`.
+- Frequency is fixed at construction time. For frequency modulation or pitch changes, create a new kernel instance.

@@ -1,0 +1,107 @@
+---
+title: "Musikell.CLI.Command"
+description: "Pure data types for parsed CLI commands"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-cli-command"
+tags: ["reference", "cli"]
+source: "src/Musikell/CLI/Command.hs"
+---
+
+Pure data types representing parsed CLI commands. No IO or parsing logic lives here.
+
+## Dependencies
+
+| Package  | Import                                              |
+| -------- | --------------------------------------------------- |
+| `text`   | `Data.Text (Text)`                                  |
+| musikell | `Musikell.Core.Types (BlockSize, defaultBlockSize)` |
+
+## Types
+
+### Command
+
+```haskell
+data Command
+  = CmdRun !RunOptions !FilePath
+  | CmdConfigSet !Text !Text
+  | CmdConfigGet !Text
+  | CmdVersion
+  | CmdHelp
+  deriving (Eq, Show)
+```
+
+| Constructor    | Fields                   | Description                                        |
+| -------------- | ------------------------ | -------------------------------------------------- |
+| `CmdRun`       | `!RunOptions, !FilePath` | Execute a `.mkl` graph file with the given options |
+| `CmdConfigSet` | `!Text, !Text`           | Set a config key to a value                        |
+| `CmdConfigGet` | `!Text`                  | Get the value of a config key                      |
+| `CmdVersion`   | --                       | Print version information                          |
+| `CmdHelp`      | --                       | Print help text                                    |
+
+### RunOptions
+
+```haskell
+data RunOptions = RunOptions
+  { runBackend   :: !BackendOption
+  , runBlockSize :: !BlockSize
+  } deriving (Eq, Show)
+```
+
+| Field          | Type             | Description           |
+| -------------- | ---------------- | --------------------- |
+| `runBackend`   | `!BackendOption` | Which backend to use  |
+| `runBlockSize` | `!BlockSize`     | Block size in samples |
+
+### BackendOption
+
+```haskell
+data BackendOption
+  = BackendDefault
+  | BackendExplicit !Text
+  | BackendNone
+  deriving (Eq, Show)
+```
+
+| Constructor       | Fields  | Description                                     |
+| ----------------- | ------- | ----------------------------------------------- |
+| `BackendDefault`  | --      | Use the `default_backend` config value (if set) |
+| `BackendExplicit` | `!Text` | Use a specific backend by flake reference       |
+| `BackendNone`     | --      | Builtins only, ignore `default_backend`         |
+
+### ParseError
+
+```haskell
+data ParseError
+  = UnknownCommand String
+  | MissingArgument String
+  | InvalidArgument String String
+  | AmbiguousFlag String
+  | MalformedKeyValue String
+  deriving (Eq, Show)
+```
+
+| Constructor         | Fields           | Description                                              |
+| ------------------- | ---------------- | -------------------------------------------------------- |
+| `UnknownCommand`    | `String`         | Unrecognised subcommand                                  |
+| `MissingArgument`   | `String`         | Required argument not provided                           |
+| `InvalidArgument`   | `String, String` | Flag name + invalid value                                |
+| `AmbiguousFlag`     | `String`         | Conflicting flags (e.g. `--backend` with `--no-backend`) |
+| `MalformedKeyValue` | `String`         | `key=value` string could not be parsed                   |
+
+## Functions
+
+### defaultRunOptions
+
+```haskell
+defaultRunOptions :: RunOptions
+```
+
+Default run options: `BackendDefault` backend, `defaultBlockSize` (256) block size.
+
+```haskell
+defaultRunOptions = RunOptions
+  { runBackend   = BackendDefault
+  , runBlockSize = defaultBlockSize
+  }
+```

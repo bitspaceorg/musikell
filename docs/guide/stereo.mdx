@@ -1,0 +1,143 @@
+---
+title: "Stereo"
+description: "Working with stereo audio: channels, .L/.R access, and mono-to-stereo conversion"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "guide/stereo"
+tags: ["guide", "stereo", "channels", "mono"]
+---
+
+# Stereo
+
+## What You'll Learn
+
+- The difference between mono and stereo signals in Musikell
+- How to access individual channels with `.L` and `.R`
+- How to convert mono signals to stereo
+- How to merge separate left and right channels back to interleaved stereo
+
+## Prerequisites
+
+- [Concepts](concepts.mdx) -- understanding of buffers and blocks
+- [Nodes](nodes.mdx) -- understanding of Manipulative nodes
+
+## Channel Count
+
+Every node in Musikell produces either a **mono** (1 channel) or **stereo** (2 channel) signal. The channel count is determined by the kernel and its configuration.
+
+| Channels   | Buffer layout           | Description                                   |
+| ---------- | ----------------------- | --------------------------------------------- |
+| Mono (1)   | `[s0, s1, s2, ...]`     | Single channel, 256 samples per block         |
+| Stereo (2) | `[L0, R0, L1, R1, ...]` | Interleaved left/right, 512 samples per block |
+
+Most kernels default to mono. The `Channel` kernel handles conversions between mono and stereo.
+
+## Accessing Individual Channels
+
+Use dot access to extract the left or right channel from a stereo signal:
+
+### Syntax
+
+```mkl
+left = signal.L
+right = signal.R
+```
+
+### Example
+
+```mkl
+input stereo_in
+
+-- Split stereo input into separate channels
+left = stereo_in.L
+right = stereo_in.R
+
+-- Process each channel differently
+left_filtered = Manipulative<left>.Filter<LP>(cutoff=2000, resonance=0.5)
+right_filtered = Manipulative<right>.Filter<LP>(cutoff=4000, resonance=0.5)
+```
+
+`.L` extracts sample indices 0, 2, 4, ... from the interleaved buffer. `.R` extracts indices 1, 3, 5, ... Both produce mono signals.
+
+## Mono to Stereo
+
+The `monoToStereo` operation duplicates a mono signal to both left and right channels:
+
+```mkl
+osc = Creational.Oscillator<Sine>(freq=440)
+stereo_osc = Manipulative<osc>.Channel<MonoToStereo>()
+```
+
+The resulting signal has the same content in both channels. This is useful when you need to feed a mono source into a stereo processing chain.
+
+### Panning
+
+To create a stereo image from a mono source, convert to stereo and then adjust channel levels:
+
+```mkl
+osc = Creational.Oscillator<Sine>(freq=440)
+stereo = Manipulative<osc>.Channel<MonoToStereo>()
+
+-- Pan slightly left by reducing the right channel
+left = stereo.L
+right = stereo.R
+right_quiet = Manipulative<right>.Gain(level=0.3)
+```
+
+## Channel Merge
+
+To combine separate left and right mono signals back into a single interleaved stereo signal:
+
+```mkl
+merged = Manipulative<left_signal, right_signal>.Channel<Merge>()
+```
+
+### Example: Split, Process, Merge
+
+```mkl
+input stereo_in
+
+-- Split
+left = stereo_in.L
+right = stereo_in.R
+
+-- Process independently
+left_proc = Manipulative<left>.Reverb(room=0.4, decay=1.0, damping=0.5, mix=0.2)
+right_proc = Manipulative<right>.Reverb(room=0.6, decay=1.5, damping=0.3, mix=0.3)
+
+-- Merge back to stereo
+stereo_out = Manipulative<left_proc, right_proc>.Channel<Merge>()
+output stereo_out
+```
+
+This creates a wider stereo image by applying different reverb settings to each channel.
+
+## Mid/Side Processing
+
+A common technique is to convert stereo to mid/side, process, and convert back:
+
+```mkl
+input stereo_in
+
+-- Extract channels
+left = stereo_in.L
+right = stereo_in.R
+
+-- Derive mid (L+R) and side (L-R) -- requires a custom kernel or math node
+-- This is an advanced pattern shown for illustration
+mid = Manipulative<left, right>.Mix()
+-- side processing would require subtraction (not yet a builtin)
+
+output mid
+```
+
+Full mid/side processing requires arithmetic operations that are planned for a future release.
+
+## Summary
+
+Musikell supports mono and stereo signals. Stereo buffers use interleaved layout. Use `.L` and `.R` to access individual channels from a stereo signal. Use `Channel<MonoToStereo>` to duplicate a mono signal to both channels. Use `Channel<Merge>` to combine separate left and right signals back to interleaved stereo.
+
+## Next Steps
+
+- [Examples](examples.mdx) -- complete programs demonstrating stereo techniques
+- [Effects](effects.mdx) -- applying effects to individual channels

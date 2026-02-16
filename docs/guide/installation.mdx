@@ -1,0 +1,108 @@
+---
+title: "Installation"
+description: "Build Musikell from source using Nix flakes and run your first program"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "guide/installation"
+tags: ["guide", "installation", "nix"]
+---
+
+# Installation
+
+## What You'll Learn
+
+- How to build Musikell from source using Nix flakes
+- How to enter the development shell
+- How to run a `.mkl` program
+- The streaming model and PCM format Musikell uses
+
+## Prerequisites
+
+- A machine running Linux or macOS (aarch64 or x86_64)
+- [Nix](https://nixos.org/download/) with flakes enabled
+
+## Building from Source
+
+Clone the repository and build with Nix:
+
+```bash
+git clone https://github.com/rahulmnavneeth/musikell.git
+cd musikell
+nix build
+```
+
+The resulting binary is at `./result/bin/musikell`.
+
+### Development Shell
+
+To enter a shell with all build dependencies (GHC 9.8.4, Cabal, C toolchain, formatters, linters):
+
+```bash
+nix develop '.#dev'
+```
+
+Inside the dev shell you can also build and run tests directly with Cabal:
+
+```bash
+cabal build
+cabal test
+```
+
+### Running Tests
+
+The full unit test suite (110 tests) runs via the Nix check:
+
+```bash
+nix build .#checks.aarch64-darwin.dev-unit   # macOS ARM
+nix build .#checks.x86_64-linux.dev-unit     # Linux x86
+```
+
+## Running a Program
+
+The `musikell run` command takes a `.mkl` file and streams audio through stdin/stdout:
+
+```bash
+./result/bin/musikell run hello-sine.mkl
+```
+
+### The Streaming Model
+
+Musikell uses a Unix pipe-based streaming model. Audio flows through standard input and standard output as raw PCM data:
+
+```
+./input.sh | musikell run graph.mkl | ./output.sh
+```
+
+This means you can compose Musikell with any tool that reads or writes raw PCM. For example, to play a sine wave on Linux:
+
+```bash
+musikell run hello-sine.mkl | aplay -f FLOAT_LE -r 44100 -c 1
+```
+
+Or pipe live microphone input through a processing chain:
+
+```bash
+arecord -f FLOAT_LE -r 44100 -c 1 | musikell run vocal-chain.mkl | aplay -f FLOAT_LE -r 44100 -c 1
+```
+
+### PCM Format
+
+All audio in Musikell uses the following format:
+
+| Parameter     | Value                                   |
+| ------------- | --------------------------------------- |
+| Sample format | 32-bit float, little-endian (IEEE 754)  |
+| Sample rate   | 44100 Hz                                |
+| Block size    | 256 samples                             |
+| Channel count | Determined by the graph (default: mono) |
+
+Every processing block reads exactly 256 samples, runs the entire graph once, and writes 256 samples. This fixed block size ensures deterministic, bounded latency.
+
+## Summary
+
+You now have Musikell built from source and understand the streaming model. Audio enters as raw PCM on stdin, flows through the node graph defined in your `.mkl` file, and exits as raw PCM on stdout.
+
+## Next Steps
+
+- [First Program](first-program.mdx) -- write and run a 440 Hz sine wave
+- [Concepts](concepts.mdx) -- understand the mental model behind Musikell

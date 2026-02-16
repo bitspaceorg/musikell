@@ -1,107 +1,201 @@
+# Musikell — GitLab CI
+# See docs/development/build.mdx and docs/development/build-flow.mdx
+# -----------------------------------------------------------------------------
+# Stages
+# -----------------------------------------------------------------------------
+# build: build + coverage (parallel)
+# staging: Supabase upload (on staging branch)
+# release: GitLab release (on main, manual)
 stages:
-  - feature-check
-  - staging-build
-  - staging-upload
-  - production-build
-  - production-upload
-  - production-release
+  - build
+  - post-merge
+  - staging
+  - release
+# -----------------------------------------------------------------------------
+# Base
+# -----------------------------------------------------------------------------
 .nix-base:
   image: nixos/nix:latest
   variables:
     GIT_DEPTH: 0
   before_script:
     - export NIX_CONFIG="experimental-features = nix-command flakes"
-    - nix develop .#stg -c cachix use musikell
-feature-check:
+    - nix develop '.#stg' -c cachix use musikell
+# -----------------------------------------------------------------------------
+# Build (runs on MR, staging, main)
+# Build = tests + lint (treefmt, nil, haskell-header)
+# -----------------------------------------------------------------------------
+build:
   extends: .nix-base
-  stage: feature-check
+  stage: build
   script:
-    - echo "[MUSIKELL::feature-check] Running checks and generating coverage data..."
-    - nix develop .#stg -c ./utils/run-check.sh stg
+    - echo "[musikell] Build (tests + lint)..."
+    - nix build '.#dev' --out-link result
+    - mkdir -p artifacts/bin
+    - cp result/bin/musikell artifacts/bin/
+  artifacts:
+    paths:
+      - artifacts/bin/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == "staging"
+    - if: $CI_COMMIT_BRANCH == "main"
+# -----------------------------------------------------------------------------
+# Coverage (runs on MR only, in parallel with build)
+# -----------------------------------------------------------------------------
+coverage:
+  extends: .nix-base
+  stage: build
+  script:
+    - echo "[musikell] Coverage..."
+    - nix build '.#stg' --out-link result
     - |
-      nix develop .#stg -c hpc report \
-        result/coverage/hpc/vanilla/tix/musikell-test/musikell-test.tix \
-        --hpcdir=result/coverage/hpc/vanilla/mix/musikell \
-        --hpcdir=result/coverage/hpc/vanilla/mix/musikell-test \
-        --exclude=Main
+      tix=$(find result/coverage -name "*.tix" 2>/dev/null | head -1)
+      mix_base=$(dirname "$(dirname "$(dirname "$tix")")")
+      hpcdir_musikell="${mix_base}/mix/musikell"
+      hpcdir_test="${mix_base}/mix/musikell-test"
+      if [ -f "$tix" ] && [ -d "$hpcdir_musikell" ]; then
+        nix develop '.#stg' -c hpc report "$tix" \
+          --hpcdir="$hpcdir_musikell" \
+          --hpcdir="$hpcdir_test" \
+          --exclude=Main > coverage-report.txt 2>&1 || true
+      else
+        find result/coverage -type f 2>/dev/null || true
+        echo "Could not find tix or mix dirs"
+        exit 1
+      fi
     - mkdir -p coverage
-    - cp -r result/coverage/hpc/vanilla/html/musikell-test coverage/
+    - |
+      html_dir=$(find result/coverage -path "*/html/musikell-test" -type d 2>/dev/null | head -1)
+      if [ -n "$html_dir" ]; then
+        cp -r "$html_dir" coverage/
+      else
+        cp -r result/coverage coverage/ 2>/dev/null || true
+      fi
+    - sh utils/execution/check-coverage-threshold.sh 80 coverage-report.txt
   coverage: '/(\d+\.?\d*)% expressions used/'
   artifacts:
     paths:
       - coverage/
+      - coverage-report.txt
     expire_in: 1 week
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
-staging-build:
-  extends: .nix-base
-  stage: staging-build
+# -----------------------------------------------------------------------------
+# Post-merge: regenerate docs/data.json with target branch URLs
+# Runs on staging/main after MR merge — fixes URLs baked by source branch
+# -----------------------------------------------------------------------------
+docs-reindex:
+  image: nixos/nix:latest
+  stage: post-merge
+  needs: [build]
+  variables:
+    GIT_DEPTH: 0
+  before_script:
+    - export NIX_CONFIG="experimental-features = nix-command flakes"
   script:
-    - echo "[MUSIKELL::staging-branch] Building binary for staging..."
-    - nix develop .#stg -c ./utils/run-check.sh stg
-    - nix build .# --out-link result
-    - nix develop .#stg -c cachix push musikell result
-    - echo "[MUSIKELL::staging-branch] Build successful. Preparing artifacts..."
-    - mkdir -p artifacts/bin
-    - cp result/bin/musikell artifacts/bin/
-  artifacts:
-    paths:
-      - artifacts/bin/
+    - |
+      echo "[musikell] Regenerating docs/data.json for branch ${CI_COMMIT_REF_NAME}..."
+      nix-shell -p 'python3.withPackages (ps: [ ps.python-frontmatter ])' -p git \
+        --run "cd utils/docs && python3 build_index.py"
+    - |
+      if git diff --quiet docs/data.json; then
+        echo "[musikell] data.json already up to date"
+        exit 0
+      fi
+    - |
+      git config user.name "musikell-ci"
+      git config user.email "ci@musikell"
+      git remote set-url origin "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      git add docs/data.json
+      git commit -m "ci: reindex docs/data.json for ${CI_COMMIT_REF_NAME} [skip ci]"
+      git push origin HEAD:${CI_COMMIT_REF_NAME}
+      echo "[musikell] docs/data.json updated for ${CI_COMMIT_REF_NAME}"
   rules:
     - if: $CI_COMMIT_BRANCH == "staging"
+    - if: $CI_COMMIT_BRANCH == "main"
+# -----------------------------------------------------------------------------
+# Staging: upload to Supabase (on staging branch merge)
+# -----------------------------------------------------------------------------
 staging-upload:
   extends: .nix-base
-  stage: staging-upload
-  needs: [staging-build]
+  stage: staging
+  needs: [build]
   script:
     - |
-      echo "[MUSIKELL::staging-branch] Uploading ./artifacts/bin/musikell to Supabase as musikell-${CI_COMMIT_SHORT_SHA}"
-      nix develop .#stg -c \
-        curl -X POST \
-             --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-             --header "Content-Type: application/octet-stream" \
-             --header "x-upsert: true" \
-             --data-binary "@artifacts/bin/musikell" \
-             "https://gkajuwzghjlrdpojnbwh.supabase.co/storage/v1/object/musikell/musikell-${CI_COMMIT_SHORT_SHA}"
-      echo "[MUSIKELL::staging-branch] Uploaded musikell-${CI_COMMIT_SHORT_SHA}"
+      timestamp=$(date -u +%Y%m%d-%H%M%S)
+      name="musikell-${CI_COMMIT_SHORT_SHA}-${timestamp}"
+      echo "[musikell] Uploading to Supabase as ${name}"
+      nix develop '.#stg' -c curl -X POST \
+        --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+        --header "Content-Type: application/octet-stream" \
+        --header "x-upsert: true" \
+        --data-binary "@artifacts/bin/musikell" \
+        "https://gkajuwzghjlrdpojnbwh.supabase.co/storage/v1/object/musikell/${name}"
+      echo "[musikell] Uploaded ${name}"
   rules:
     - if: $CI_COMMIT_BRANCH == "staging"
-production-build:
+# -----------------------------------------------------------------------------
+# Release (on main branch)
+# 1. release-details (manual): provide RELEASE_TAG, RELEASE_NAME, etc.
+# 2. release-confirm (manual): confirm after details succeed
+# 3. release: runs after confirm, uploads binary and creates release
+# -----------------------------------------------------------------------------
+release-details:
   extends: .nix-base
-  stage: production-build
+  stage: release
+  needs: [build]
+  when: manual
   script:
-    - echo "[MUSIKELL::production-release] Building binary for version $CI_COMMIT_TAG..."
-    - nix develop .#stg -c ./utils/run-check.sh stg
-    - nix build .# --out-link result
-    - nix develop .#stg -c cachix push musikell result
-    - echo "[MUSIKELL::production-release] Build successful. Preparing artifacts..."
-    - mkdir -p artifacts/bin
-    - cp result/bin/musikell artifacts/bin/
+    - |
+      tag="${RELEASE_TAG:-v$(date +%Y%m%d)}"
+      name="${RELEASE_NAME:-Release $tag}"
+      desc="${RELEASE_DESCRIPTION:-}"
+      changelog="${RELEASE_CHANGELOG:-}"
+      echo "RELEASE_TAG=$tag" >> release.env
+      echo "RELEASE_NAME=$name" >> release.env
+      echo "RELEASE_DESCRIPTION=$desc" >> release.env
+      echo "RELEASE_CHANGELOG=$changelog" >> release.env
+      echo "[musikell] Release details saved: tag=$tag name=$name"
   artifacts:
-    paths:
-      - artifacts/bin/
+    reports:
+      dotenv: release.env
   rules:
-    - if: $CI_COMMIT_TAG && $CI_COMMIT_REF_PROTECTED == "true"
-production-upload:
+    - if: $CI_COMMIT_BRANCH == "main"
+release-confirm:
   extends: .nix-base
-  stage: production-upload
-  needs: [production-build]
+  stage: release
+  needs: [release-details]
+  when: manual
   script:
     - |
-      nix develop .#stg -c \
-        curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
-             --upload-file artifacts/bin/musikell \
-             "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/musikell/${CI_COMMIT_TAG}/musikell"
+      echo "[musikell] Review release details above. Click the play button in the GitLab UI to confirm."
+      echo "  Tag: ${RELEASE_TAG}"
+      echo "  Name: ${RELEASE_NAME}"
   rules:
-    - if: $CI_COMMIT_TAG && $CI_COMMIT_REF_PROTECTED == "true"
-production-release:
+    - if: $CI_COMMIT_BRANCH == "main"
+release:
   extends: .nix-base
-  stage: production-release
-  needs: [production-upload]
+  stage: release
+  needs: [build, release-details, release-confirm]
   script:
     - |
-      nix develop .#stg -c \
-        release-cli create --name "Release $CI_COMMIT_TAG" --tag-name $CI_COMMIT_TAG \
-          --assets-link "{\"name\":\"musikell\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/musikell/${CI_COMMIT_TAG}/musikell\"}"
+      tag="${RELEASE_TAG}"
+      name="${RELEASE_NAME}"
+      desc="${RELEASE_DESCRIPTION:-}"
+      changelog="${RELEASE_CHANGELOG:-}"
+      body="$desc"
+      [ -n "$changelog" ] && body="${body}\n\n${changelog}"
+      echo "[musikell] Uploading binary for $tag..."
+      nix develop '.#stg' -c curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --upload-file artifacts/bin/musikell \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/musikell/${tag}/musikell"
+      echo "[musikell] Creating release $tag..."
+      nix develop '.#stg' -c release-cli create \
+        --tag-name "$tag" \
+        --name "$name" \
+        --description "$body" \
+        --asset-link "{\"name\":\"musikell\",\"url\":\"${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/musikell/${tag}/musikell\"}"
+      echo "[musikell] Release $tag created"
   rules:
-    - if: $CI_COMMIT_TAG && $CI_COMMIT_REF_PROTECTED == "true"
+    - if: $CI_COMMIT_BRANCH == "main"

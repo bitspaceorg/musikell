@@ -1,0 +1,130 @@
+---
+title: "Musikell.IO.ConduitPipeline"
+description: "Complete streaming pipeline: stdin to scheduler to stdout"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-io-conduit-pipeline"
+tags: ["reference", "io"]
+source: "src/Musikell/IO/ConduitPipeline.hs"
+---
+
+Conduit-based streaming pipeline. Connects stdin → scheduler → stdout in a single streaming loop. Each iteration processes one block of audio through the entire graph.
+
+## Language extensions
+
+| Extension      | Reason                                                 |
+| -------------- | ------------------------------------------------------ |
+| `BangPatterns` | Strict accumulator in chunker loop and scheduler state |
+
+## Dependencies
+
+| Package      | Import                                                                                   |
+| ------------ | ---------------------------------------------------------------------------------------- |
+| `base`       | `Control.Monad.IO.Class (liftIO)`                                                        |
+| `bytestring` | `Data.ByteString`                                                                        |
+| `conduit`    | `Data.Conduit`, `Data.Conduit.Combinators (sourceHandle, sinkHandle)`                    |
+| `base`       | `System.IO (stdin, stdout, hSetBinaryMode, hSetBuffering, BufferMode)`                   |
+| musikell     | `Musikell.Core.Types (NodeId, PortId, BlockSize, ChannelCount, defaultChannelCount)`     |
+| musikell     | `Musikell.Core.Graph (Graph)`                                                            |
+| musikell     | `Musikell.Core.ExecutionPlan (ExecutionPlan)`                                            |
+| musikell     | `Musikell.Core.Scheduler (SchedulerConfig, SchedulerState, initScheduler, executeBlock)` |
+| musikell     | `Musikell.Memory.Buffer (Buffer)`                                                        |
+| musikell     | `Musikell.Memory.Pool (BufferPool, getPoolBuffer, allocatePool)`                         |
+| musikell     | `Musikell.Runtime.Kernel (KernelRegistry)`                                               |
+| musikell     | `Musikell.IO.StreamInput (bytesIntoBuffer)`                                              |
+| musikell     | `Musikell.IO.StreamOutput (unsafeBufferToBytes)`                                         |
+
+## Constants
+
+| Name          | Type  | Value | Description                     |
+| ------------- | ----- | ----- | ------------------------------- |
+| `sampleBytes` | `Int` | `4`   | Bytes per sample (32-bit float) |
+
+## Functions
+
+### Pipeline execution
+
+#### runPipeline
+
+```haskell
+runPipeline
+  :: ExecutionPlan
+  -> Graph
+  -> KernelRegistry
+  -> NodeId          -- input node
+  -> NodeId          -- output node
+  -> BlockSize
+  -> ChannelCount
+  -> IO ()
+```
+
+The main entry point. Sets stdin/stdout to binary mode and block buffering, allocates the buffer pool from the graph, then runs the conduit pipeline until EOF.
+
+| Parameter   | Type             | Description                                     |
+| ----------- | ---------------- | ----------------------------------------------- |
+| `plan`      | `ExecutionPlan`  | Topologically sorted execution order            |
+| `graph`     | `Graph`          | Audio graph (nodes + edges)                     |
+| `registry`  | `KernelRegistry` | Kernel implementations (builtin + external)     |
+| `inNode`    | `NodeId`         | ID of the input node (receives stdin PCM)       |
+| `outNode`   | `NodeId`         | ID of the output node (produces stdout PCM)     |
+| `blockSize` | `BlockSize`      | Number of samples per block                     |
+| `channels`  | `ChannelCount`   | Number of audio channels (1 = mono, 2 = stereo) |
+
+Setup steps:
+
+1. `hSetBinaryMode` on stdin and stdout (no newline translation)
+2. `hSetBuffering` to `BlockBuffering` with chunk size `blockSize * channels * sampleBytes`
+3. `allocatePool blockSize graph` -- one buffer per node/port pair
+4. Run: `chunkedSource .| processConduit .| sinkHandle stdout`
+
+### Components (exported for testing)
+
+#### chunkedSource
+
+```haskell
+chunkedSource :: BlockSize -> ConduitT () ByteString IO ()
+```
+
+Reads from stdin via `sourceHandle` and emits fixed-size `ByteString` chunks of `blockSize * sampleBytes` bytes. Short final blocks are zero-padded. Internally uses an accumulator to handle partial reads from the OS.
+
+#### processConduit
+
+```haskell
+processConduit
+  :: ExecutionPlan
+  -> Graph
+  -> KernelRegistry
+  -> NodeId           -- input node
+  -> NodeId           -- output node
+  -> BufferPool
+  -> SchedulerConfig
+  -> ConduitT ByteString ByteString IO ()
+```
+
+Core processing conduit. For each input chunk:
+
+1. Look up the input node's output buffer in the pool via `getPoolBuffer inNode (PortId 0)`
+2. Copy input PCM directly into that buffer via `bytesIntoBuffer` (zero allocation)
+3. Execute the full graph via `executeBlock plan graph registry state`
+4. Look up the output node's buffer via `getPoolBuffer outNode (PortId 0)`
+5. Read the output buffer via `unsafeBufferToBytes` (zero copy)
+6. Yield the output `ByteString` downstream
+
+Stops on EOF or on scheduler error.
+
+## Pipeline flow per block
+
+```
+1. chunkedSource reads one block of raw PCM from stdin
+2. processConduit copies PCM into input node's output buffer (bytesIntoBuffer -- zero alloc)
+3. processConduit calls executeBlock -- runs all kernels in topological order
+4. processConduit reads output node's buffer (unsafeBufferToBytes -- zero copy)
+5. sinkHandle writes raw PCM to stdout
+```
+
+## Usage Notes
+
+- The pipeline runs on a single thread. No concurrency within a block.
+- `runPipelineNative` using `mkl_tick_once` (C tick loop) will be added once the C execution plan serialization is complete.
+- The `unsafeBufferToBytes` call is safe here because the `ByteString` is written to stdout (consumed) before the next block overwrites the buffer.
+- Block buffering on stdout prevents per-sample syscalls and ensures full blocks are flushed atomically.

@@ -1,0 +1,112 @@
+---
+title: "Musikell.Memory.Layout"
+description: "Alignment-aware buffer layout specification and validation"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-memory-layout"
+tags: ["reference", "memory"]
+source: "src/Musikell/Memory/Layout.hs"
+---
+
+Memory layout specification for audio buffers. Computes byte requirements, aligns to SIMD boundaries, and validates layout parameters before allocation.
+
+## Purpose
+
+`BufferLayout` captures the triple of block size, alignment, and channel count needed to calculate how many bytes a buffer requires. The default layout targets SSE-compatible 16-byte alignment with mono audio. `validateLayout` ensures all parameters are sane before any allocation occurs.
+
+## Dependencies
+
+| Package  | Import                                              |
+| -------- | --------------------------------------------------- |
+| `base`   | `Data.Bits ((.&.))`                                 |
+| `base`   | `Foreign.Storable (sizeOf)`                         |
+| musikell | `Musikell.Core.Types (BlockSize, defaultBlockSize)` |
+
+## Types
+
+### BufferLayout
+
+```haskell
+data BufferLayout = BufferLayout
+  { layoutBlockSize :: !BlockSize
+  , layoutAlignment :: !Int
+  , layoutChannels  :: !Int
+  } deriving (Eq, Show)
+```
+
+| Field             | Type        | Description                                        |
+| ----------------- | ----------- | -------------------------------------------------- |
+| `layoutBlockSize` | `BlockSize` | Number of samples per block                        |
+| `layoutAlignment` | `Int`       | Memory alignment in bytes (must be a power of two) |
+| `layoutChannels`  | `Int`       | Number of audio channels                           |
+
+## Functions
+
+### Constants
+
+| Function           | Signature | Value | Description                                                              |
+| ------------------ | --------- | ----- | ------------------------------------------------------------------------ |
+| `defaultAlignment` | `Int`     | `16`  | Default alignment: 16 bytes (SSE compatible)                             |
+| `defaultChannels`  | `Int`     | `1`   | Default channel count: mono                                              |
+| `sampleSize`       | `Int`     | `4`   | Size of a single `Float` sample in bytes (`sizeOf (undefined :: Float)`) |
+
+### Construction
+
+#### defaultLayout
+
+```haskell
+defaultLayout :: BufferLayout
+```
+
+Default layout configuration using `defaultBlockSize`, `defaultAlignment` (16), and `defaultChannels` (1).
+
+### Layout Calculations
+
+#### requiredBytes
+
+```haskell
+requiredBytes :: BufferLayout -> Int
+```
+
+Calculate the raw number of bytes needed for a layout: `blockSize * channels * sampleSize`.
+
+#### alignedSize
+
+```haskell
+alignedSize :: BufferLayout -> Int
+```
+
+Calculate the aligned byte size, rounding up `requiredBytes` to the next multiple of `layoutAlignment`. Formula: `((raw + align - 1) / align) * align`.
+
+#### isAligned
+
+```haskell
+isAligned :: Int -> Int -> Bool
+```
+
+Check if a byte size is properly aligned to the given alignment boundary. Returns `True` when `size mod alignment == 0`.
+
+### Validation
+
+#### validateLayout
+
+```haskell
+validateLayout :: BufferLayout -> Either String ()
+```
+
+Validate a layout specification. Returns `Left` with an error message if any constraint is violated.
+
+| Check                                | Error message                        |
+| ------------------------------------ | ------------------------------------ |
+| `layoutBlockSize <= 0`               | `"Block size must be positive"`      |
+| `layoutAlignment <= 0`               | `"Alignment must be positive"`       |
+| `layoutAlignment` not a power of two | `"Alignment must be a power of two"` |
+| `layoutChannels <= 0`                | `"Channel count must be positive"`   |
+
+Power-of-two check uses the bit trick `n > 0 && (n .&. (n - 1)) == 0`.
+
+## Usage Notes
+
+- `BufferLayout` is a specification type -- it does not allocate memory itself. Pass the computed sizes to `allocateBuffer` or an aligned allocator.
+- The default 16-byte alignment satisfies SSE requirements. For AVX, use 32 bytes; for AVX-512, use 64 bytes.
+- `alignedSize` always returns a value `>= requiredBytes`. The padding bytes are not initialised.

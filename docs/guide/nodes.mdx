@@ -1,0 +1,170 @@
+---
+title: "Nodes"
+description: "All three node types in Musikell: Creational, Manipulative, and Conditional"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "guide/nodes"
+tags: ["guide", "nodes", "dsl"]
+---
+
+# Nodes
+
+## What You'll Learn
+
+- The syntax and purpose of each node type
+- How to use Creational nodes to generate audio
+- How to use Manipulative nodes to transform audio
+- How to use Conditional nodes to route and control audio
+
+## Prerequisites
+
+- [Concepts](concepts.mdx) -- understanding of nodes, edges, and the graph model
+
+## Overview
+
+Every node in a Musikell program follows one of three patterns:
+
+| Type         | Syntax                                         | Inputs                    |
+| ------------ | ---------------------------------------------- | ------------------------- |
+| Creational   | `Creational.Kernel<Variant>(params)`           | None (generates audio)    |
+| Manipulative | `Manipulative<inputs>.Kernel<Variant>(params)` | One or more               |
+| Conditional  | `Conditional<inputs>.Kernel(params)`           | Two or more (for routing) |
+
+All nodes are assigned to a name using binding syntax: `name = ...`.
+
+## Creational Nodes
+
+Creational nodes generate audio from nothing. They have no input edges -- they are pure sources.
+
+### Syntax
+
+```
+name = Creational.Kernel<Variant>(param=value, param=value)
+```
+
+### Examples
+
+**Oscillators** generate periodic waveforms:
+
+```mkl
+sine = Creational.Oscillator<Sine>(freq=440)
+saw = Creational.Oscillator<Saw>(freq=220)
+square = Creational.Oscillator<Square>(freq=110)
+tri = Creational.Oscillator<Triangle>(freq=330)
+```
+
+The oscillator kernel uses PolyBLEP anti-aliasing to minimize spectral artifacts.
+
+**Noise** generates random signals:
+
+```mkl
+white = Creational.Noise<White>(seed=42)
+pink = Creational.Noise<Pink>(seed=17)
+brown = Creational.Noise<Brown>(seed=99)
+```
+
+The `seed` parameter initializes the xorshift PRNG for deterministic output.
+
+**Sequencer** generates rhythmic patterns:
+
+```mkl
+kick_pat = Creational.Sequencer(pattern=|x...x...x...x...|, bpm=120, subdivision=4)
+```
+
+See [Patterns](patterns.mdx) for full sequencer documentation.
+
+## Manipulative Nodes
+
+Manipulative nodes transform one or more input signals. The inputs are listed inside angle brackets.
+
+### Syntax
+
+```
+name = Manipulative<input1, input2, ...>.Kernel<Variant>(param=value)
+```
+
+### Single Input
+
+Most manipulative nodes take a single input:
+
+```mkl
+osc = Creational.Oscillator<Sine>(freq=440)
+gained = Manipulative<osc>.Gain(level=0.5)
+filtered = Manipulative<gained>.Filter<LP>(cutoff=1000, resonance=0.7)
+delayed = Manipulative<filtered>.Delay(ms=250)
+```
+
+Each node reads from the previous node's output buffer and writes to its own output buffer.
+
+### Multiple Inputs
+
+Some kernels accept multiple inputs. `Mix` combines signals:
+
+```mkl
+a = Creational.Oscillator<Sine>(freq=440)
+b = Creational.Oscillator<Saw>(freq=220)
+mix = Manipulative<a, b>.Mix()
+```
+
+`Gain` with two inputs can use the second signal as an amplitude modulator:
+
+```mkl
+osc = Creational.Oscillator<Sine>(freq=440)
+env = Creational.Sequencer(pattern=|x..x..x.|, bpm=120, subdivision=4)
+gated = Manipulative<osc, env>.Gain(level=0.8)
+```
+
+### Method Chains
+
+You can chain multiple operations using dot syntax:
+
+```mkl
+processed = Manipulative<osc>.Filter<LP>(cutoff=1000).Gain(level=0.5)
+```
+
+This is equivalent to creating two separate nodes, but more concise.
+
+## Conditional Nodes
+
+Conditional nodes control signal routing. They determine which signal path is active based on conditions.
+
+### Bypass
+
+The `bypass` prefix keeps a node in the graph but passes the input signal through unchanged:
+
+```mkl
+bypass filtered = Manipulative<osc>.Filter<LP>(cutoff=1000)
+```
+
+When bypassed, `filtered` outputs whatever `osc` produces, as if the filter did not exist. Bypass can be toggled at runtime.
+
+### Mute
+
+The `mute` prefix silences a node's output:
+
+```mkl
+mute noise = Creational.Noise<White>(seed=42)
+```
+
+When muted, `noise` outputs silence (all zeros). The node still exists in the graph and can be unmuted.
+
+### Crossfade
+
+The `Crossfade` kernel smoothly transitions between two signals:
+
+```mkl
+dry = Manipulative<osc>.Gain(level=1.0)
+wet = Manipulative<osc>.Reverb(room=0.8, decay=2.0, mix=1.0)
+blend = Conditional<dry, wet>.Crossfade()
+```
+
+See [Conditional](conditional.mdx) for advanced routing patterns.
+
+## Summary
+
+Musikell has three node types. Creational nodes generate audio (oscillators, noise, sequencers). Manipulative nodes transform audio (filters, gain, delay, reverb). Conditional nodes route audio (bypass, mute, crossfade). All nodes are bound to names and connected by listing inputs in angle brackets.
+
+## Next Steps
+
+- [Routing](routing.mdx) -- inputs, outputs, groups, and feedback edges
+- [Effects](effects.mdx) -- detailed guide to filter, delay, reverb, and dynamics kernels

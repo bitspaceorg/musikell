@@ -1,0 +1,180 @@
+---
+title: "DSP Design"
+description: "Algorithm choices and rationale for Musikell's built-in DSP kernels"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "architecture/dsp-design"
+tags: ["architecture", "dsp", "algorithms"]
+---
+
+## Overview
+
+Musikell's built-in kernels (in `src/Musikell/Runtime/Kernel/Builtin/`) implement standard DSP algorithms chosen for a balance of audio quality, computational efficiency, and real-time safety. This document explains what each algorithm does and why it was chosen over alternatives.
+
+## PolyBLEP Oscillators
+
+**Module**: `Musikell.Runtime.Kernel.Builtin.Oscillator`
+
+Band-limited oscillators using polynomial BLEP (Band-Limited stEP) correction. Naive digital oscillators generate waveforms with discontinuities (square wave edges, sawtooth resets) that produce aliasing — frequencies above the Nyquist limit that fold back into the audible range as inharmonic artifacts.
+
+PolyBLEP corrects this by applying a polynomial smoothing function to samples near the discontinuity. The correction is computed from the fractional phase position relative to the discontinuity point and the phase increment (frequency / sample rate).
+
+### Waveform implementations
+
+- **Sine**: Direct `sin()` computation on the phase accumulator. No anti-aliasing needed since sine has no discontinuities.
+- **Square**: Naive square wave (sign of phase) with PolyBLEP correction applied at both the rising edge (phase = 0) and falling edge (phase = 0.5).
+- **Sawtooth**: Naive sawtooth (linear ramp from -1 to 1) with PolyBLEP correction at the reset discontinuity (phase = 0).
+- **Triangle**: Derived from integrated square wave. Since integration is a lowpass operation, the triangle inherits the anti-aliasing properties of the corrected square.
+
+### Why PolyBLEP
+
+Compared to alternatives:
+
+- **Wavetable**: Requires significant memory, interpolation logic, and multiple tables for different frequency ranges. PolyBLEP is computed in-place with no memory overhead.
+- **BLIT (Band-Limited Impulse Train)**: More computationally expensive and requires careful DC offset management.
+- **Oversampling + filtering**: Requires running the oscillator at 2-4x sample rate and applying a decimation filter. Much higher CPU cost.
+
+PolyBLEP provides good aliasing suppression at minimal CPU cost — typically 2-4 extra multiplies and a branch per sample.
+
+## State Variable Filter (SVF)
+
+**Module**: `Musikell.Runtime.Kernel.Builtin.Filter`
+
+Topology-preserving digital State Variable Filter. The SVF simultaneously computes lowpass, highpass, bandpass, and notch outputs from a single filter structure.
+
+### Design
+
+The filter maintains two state variables (`ic1eq`, `ic2eq`) representing the integrator states. Each sample is processed through a two-integrator feedback loop with coefficients derived from the cutoff frequency and resonance:
+
+- `g = tan(pi * cutoff / sampleRate)` — integrator gain from bilinear pre-warping
+- `k = 2 - 2 * resonance` — damping factor (resonance in [0, 1])
+
+The filter outputs are computed per sample:
+
+- **Highpass**: `(input - k * bandpass - lowpass) / (1 + k * g + g * g)`
+- **Bandpass**: `g * highpass + ic1eq`
+- **Lowpass**: `g * bandpass + ic2eq`
+- **Notch**: `highpass + lowpass`
+
+### Why SVF over Biquad
+
+- **Numerical stability**: The SVF topology is inherently stable at high resonance values where biquad coefficients can overflow or produce denormals.
+- **Simultaneous multi-mode output**: A single SVF pass produces LP, HP, BP, and notch. A biquad computes one mode per pass.
+- **Smooth parameter modulation**: The SVF's state variables track parameter changes gracefully. Biquad coefficient updates can cause clicks if not interpolated.
+- **Zero-delay feedback**: The SVF resolves the implicit delay in the feedback path analytically, avoiding the one-sample delay that plagues naive digital filter implementations.
+
+## Feedback Delay Network (FDN) Reverb
+
+**Module**: `Musikell.Runtime.Kernel.Builtin.Reverb`
+
+4-line Feedback Delay Network with Hadamard mixing matrix for diffuse, natural-sounding reverb.
+
+### Architecture
+
+The FDN consists of four parallel delay lines, each with:
+
+- **Delay length**: Prime-number-scaled based on room size parameter. Using mutually prime lengths prevents periodic repetition patterns that would sound metallic.
+- **Per-line damping**: One-pole lowpass filter on each delay line output. Controls high-frequency decay rate independently of overall reverb time.
+- **Hadamard mixing**: After reading from all four delay lines, the outputs are mixed using a 4x4 Hadamard matrix before being fed back into the delay inputs. The Hadamard matrix is orthogonal and energy-preserving, which guarantees stable feedback.
+- **Dry/wet mix**: Linear crossfade between the input signal and the reverb output.
+
+### Why FDN
+
+- **Dense reflections**: The Hadamard mixing ensures that energy from any delay line spreads to all others on each iteration, producing dense, smooth reverb tails without audible individual echoes.
+- **No comb filter artifacts**: Unlike Schroeder reverbs (which cascade comb and allpass filters), the FDN's mixing matrix avoids the metallic coloration caused by parallel comb filters.
+- **Scalable**: More delay lines can be added for denser reverb. The Hadamard matrix scales to any power-of-two size.
+- **Efficient**: Four delay lines with a matrix multiply is computationally cheaper than the 8+ comb filters and 4 allpass filters in a typical Schroeder reverb.
+
+## Dynamics Processing
+
+**Module**: `Musikell.Runtime.Kernel.Builtin.Dynamics`
+
+Peak envelope follower with configurable attack and release times, used for compression, limiting, and gating.
+
+### Envelope follower
+
+The envelope tracks the peak amplitude of the input signal using exponential smoothing:
+
+```
+if |sample| > envelope:
+    envelope = attack_coeff * envelope + (1 - attack_coeff) * |sample|
+else:
+    envelope = release_coeff * envelope + (1 - release_coeff) * |sample|
+```
+
+`timeToCoeff` converts millisecond attack/release times to exponential coefficients: `coeff = exp(-1 / (time_ms * sampleRate / 1000))`.
+
+### Compressor
+
+Applies ratio-based gain reduction when the envelope exceeds the threshold:
+
+```
+gain_db = threshold + (envelope_db - threshold) / ratio - envelope_db
+```
+
+A ratio of 4:1 means that for every 4 dB the signal exceeds the threshold, only 1 dB passes through. The computed gain is applied sample-by-sample.
+
+### Limiter
+
+An infinite-ratio compressor — any signal above the threshold is brought down to exactly the threshold level. Equivalent to a compressor with ratio set to infinity.
+
+### Gate
+
+Silences the signal when the envelope falls below the threshold. The gate opens (passes signal) when the envelope is above threshold and closes (outputs silence) when below. Future work: hysteresis with separate open and close thresholds to prevent rapid on/off chattering near the threshold.
+
+## Noise Generation
+
+**Module**: `Musikell.Runtime.Kernel.Builtin.Noise`
+
+Three noise colors generated from a single xorshift32 PRNG.
+
+### xorshift32
+
+The PRNG uses the xorshift32 algorithm for speed: three XOR-shift operations per output. It passes basic randomness tests and is vastly faster than cryptographic PRNGs — the quality requirements for audio noise are much lower than for cryptography.
+
+### White noise
+
+Direct PRNG output normalized to the range [-1, 1]. Flat power spectrum across all frequencies.
+
+### Pink noise (1/f)
+
+Voss-McCartney algorithm: maintains multiple octave-band noise generators, each updating at half the rate of the one above. The outputs are summed to produce noise with a 1/f power spectrum (equal energy per octave). Pink noise sounds perceptually "even" across the frequency range and is commonly used for testing and as a modulation source.
+
+### Brown noise (1/f^2)
+
+Integrated white noise with a leak factor for DC stability:
+
+```
+brown[n] = leak * brown[n-1] + white[n]
+```
+
+The leak factor (slightly less than 1.0) prevents the random walk from drifting to large DC offsets. Brown noise has a 1/f^2 power spectrum — heavily weighted toward low frequencies. Used for rumble effects and low-frequency modulation.
+
+## ADSR Envelope
+
+**Module**: `Musikell.Runtime.Kernel.Builtin.Envelope`
+
+Linear-segment ADSR (Attack, Decay, Sustain, Release) envelope generator.
+
+### Stage machine
+
+The envelope progresses through five states:
+
+```
+Idle -> Attack -> Decay -> Sustain -> Release -> Idle
+```
+
+- **Idle**: Output is 0. Waiting for gate signal.
+- **Attack**: Linear ramp from 0 to 1 over the attack time.
+- **Decay**: Linear ramp from 1 to the sustain level over the decay time.
+- **Sustain**: Holds at the sustain level as long as the gate is high.
+- **Release**: Linear ramp from the sustain level to 0 over the release time.
+
+### Gate behavior
+
+A gate signal controls the envelope:
+
+- **Rising edge** (gate goes from 0 to non-zero): triggers the Attack phase, regardless of current state.
+- **Falling edge** (gate goes from non-zero to 0): triggers the Release phase from whatever level the envelope is currently at.
+
+The envelope output is multiplied with the audio signal to shape its amplitude over time. This is the standard model for synthesizer note articulation.

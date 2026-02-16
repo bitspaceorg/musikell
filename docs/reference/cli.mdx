@@ -1,0 +1,30 @@
+---
+title: "CLI Layer"
+description: "Command-line interface — parsing, dispatch, and command types"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-cli"
+tags: ["reference", "cli"]
+---
+
+CLI layer: command-line argument parsing and dispatch.
+
+The CLI follows a subcommand pattern: `musikell <command> [options] [args]`.
+
+```
+musikell run <file.mkl>                     execute a graph file
+musikell run --block 512 <file.mkl>         execute with custom block size
+musikell run --backend github:User/repo     execute with external backend
+musikell config set key=value               set a config value
+musikell config get key                     get a config value
+musikell version                            show version information
+musikell help                               show help
+```
+
+## Modules
+
+| Module                       | Description                                                     |
+| ---------------------------- | --------------------------------------------------------------- |
+| [Command](cli/command.mdx)   | Pure data types: Command, RunOptions, BackendOption, ParseError |
+| [Parse](cli/parse.mdx)       | Pure argument parser: `[String] -> Either ParseError Command`   |
+| [Dispatch](cli/dispatch.mdx) | IO dispatch: pattern matches on Command, runs the pipeline      |

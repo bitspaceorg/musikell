@@ -1,0 +1,90 @@
+---
+title: "Musikell.CLI.Parse"
+description: "Pure CLI argument parser — [String] to Either ParseError Command"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-cli-parse"
+tags: ["reference", "cli"]
+source: "src/Musikell/CLI/Parse.hs"
+---
+
+Pure CLI argument parser. Parses `[String]` into a `Command` with no IO. Flags can appear in any order for the `run` subcommand.
+
+## Language extensions
+
+| Extension           | Reason                      |
+| ------------------- | --------------------------- |
+| `OverloadedStrings` | Text literals in flag names |
+
+## Dependencies
+
+| Package  | Import                 |
+| -------- | ---------------------- |
+| `text`   | `Data.Text`            |
+| musikell | `Musikell.CLI.Command` |
+
+## Functions
+
+### Public API
+
+#### parseArgs
+
+```haskell
+parseArgs :: [String] -> Either ParseError Command
+```
+
+Main entry point for CLI argument parsing. Dispatches on the first argument:
+
+| First argument               | Result                      |
+| ---------------------------- | --------------------------- |
+| (empty)                      | `Right CmdHelp`             |
+| `"run"`                      | Delegates to `parseRun`     |
+| `"config"`                   | Delegates to `parseConfig`  |
+| `"version"`                  | `Right CmdVersion`          |
+| `"help"`, `"-h"`, `"--help"` | `Right CmdHelp`             |
+| anything else                | `Left (UnknownCommand cmd)` |
+
+### Internal functions
+
+#### parseConfig
+
+Parses the `config` subcommand:
+
+| Arguments         | Result                       |
+| ----------------- | ---------------------------- |
+| `"set" : kv : _`  | Delegates to `parseKeyValue` |
+| `"set" : []`      | `Left (MissingArgument ...)` |
+| `"get" : key : _` | `Right (CmdConfigGet key)`   |
+| `"get" : []`      | `Left (MissingArgument ...)` |
+| other             | `Left (UnknownCommand ...)`  |
+
+#### parseKeyValue
+
+Parses a `key=value` string. Splits on the first `=`. Returns `Left (MalformedKeyValue kv)` if there is no `=`.
+
+#### parseRun
+
+Parses the `run` subcommand. Calls `consumeRunArgs` with `defaultRunOptions` and expects at least one positional argument (the file path). Returns `Left (MissingArgument ...)` if no file is provided.
+
+#### consumeRunArgs
+
+Recursively consumes run flags and positional arguments in any order:
+
+| Flag                 | Effect                                                        |
+| -------------------- | ------------------------------------------------------------- |
+| `--block <n>`        | Sets `runBlockSize` to `n` (via `safeReadInt`)                |
+| `--backend <ref>`    | Sets `runBackend` to `BackendExplicit ref`                    |
+| `--no-backend`       | Sets `runBackend` to `BackendNone`                            |
+| `--<unknown>`        | `Left (InvalidArgument ...)`                                  |
+| positional (first)   | Sets the file path                                            |
+| positional (second+) | `Left (InvalidArgument ... "unexpected positional argument")` |
+
+Conflicting backend flags (`--backend` + `--no-backend`) produce `Left (AmbiguousFlag ...)`.
+
+#### safeReadInt
+
+```haskell
+safeReadInt :: String -> Maybe Int
+```
+
+Safe integer parsing using `reads`. Returns `Just n` if the entire string parses as an `Int`, `Nothing` otherwise.

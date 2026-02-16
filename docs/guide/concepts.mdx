@@ -1,0 +1,131 @@
+---
+title: "Concepts"
+description: "The mental model behind Musikell: nodes, edges, blocks, kernels, and the execution pipeline"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "guide/concepts"
+tags: ["guide", "concepts", "architecture"]
+---
+
+# Concepts
+
+## What You'll Learn
+
+- The six core concepts that make up Musikell's execution model
+- How a `.mkl` file becomes a running audio stream
+- Why blocks and deterministic scheduling matter for real-time audio
+
+## Prerequisites
+
+- Familiarity with the [First Program](first-program.mdx) example
+
+## Nodes
+
+A **node** is a processing unit in the audio graph. Every node has:
+
+- A **kernel** -- the DSP function it runs (e.g., `Oscillator`, `Filter`, `Gain`)
+- **Input ports** -- zero or more buffers of audio it reads from
+- **Output ports** -- one or more buffers of audio it writes to
+- **Parameters** -- configuration values (e.g., `freq=440`, `cutoff=1000`)
+
+There are three node types:
+
+| Type             | Purpose                          | Example                                 |
+| ---------------- | -------------------------------- | --------------------------------------- |
+| **Creational**   | Generates audio from nothing     | `Creational.Oscillator<Sine>(freq=440)` |
+| **Manipulative** | Transforms input audio           | `Manipulative<osc>.Gain(level=0.5)`     |
+| **Conditional**  | Routes audio based on conditions | `Conditional<a, b>.Crossfade()`         |
+
+## Edges
+
+An **edge** connects the output port of one node to the input port of another. Edges are created implicitly when you reference a node inside angle brackets:
+
+```mkl
+osc = Creational.Oscillator<Sine>(freq=440)
+gained = Manipulative<osc>.Gain(level=0.5)
+--                    ^^^
+--                    This creates an edge from osc's output to gained's input
+```
+
+### Feedback Edges
+
+A **feedback edge** is a special edge prefixed with `~`. It introduces a one-block delay, allowing cycles in the graph without breaking the topological sort:
+
+```mkl
+delay = Manipulative<input, ~delay>.Delay(ms=250, feedback=0.3)
+--                         ^^^^^^
+--                         Reads delay's own output from the PREVIOUS block
+```
+
+## Graph
+
+The **graph** is a directed acyclic graph (DAG) of all nodes and edges in your program. When you write a `.mkl` file, the parser and lowering stages convert your declarations into this graph structure. The graph is then topologically sorted to determine execution order -- ensuring every node's inputs are computed before the node itself runs.
+
+## Blocks
+
+A **block** is a fixed-size chunk of audio samples. Musikell processes audio in blocks of 256 samples (at 44100 Hz, that is roughly 5.8 milliseconds of audio).
+
+All processing happens per-block:
+
+1. Read 256 samples from stdin into the input buffer
+2. Execute every node in the graph once, in topological order
+3. Write 256 samples from the output buffer to stdout
+
+This block-based model gives deterministic, bounded latency. Every block takes the same path through the graph, and the total latency is always a known multiple of the block size.
+
+## Kernels
+
+A **kernel** is the DSP function inside a node. It reads from input buffers and writes to output buffers. Musikell ships with a set of builtin kernels:
+
+| Category    | Kernels                                                       |
+| ----------- | ------------------------------------------------------------- |
+| Oscillators | Sine, Saw, Square, Triangle (PolyBLEP anti-aliased)           |
+| Noise       | White, Pink, Brown                                            |
+| Filters     | Low-pass, High-pass, Band-pass, Notch (state-variable filter) |
+| Dynamics    | Compressor, Limiter, Gate                                     |
+| Time        | Delay (interpolated)                                          |
+| Space       | Reverb (feedback delay network)                               |
+| Utility     | Gain, Mix, Envelope (ADSR), Channel, Crossfade                |
+| Sequencing  | Sequencer (pattern-based)                                     |
+
+Kernels can also be loaded from external backends for custom DSP.
+
+## Pipeline
+
+The full pipeline from `.mkl` source to running audio stream is:
+
+```
+.mkl file
+  |  parse
+  v
+ AST
+  |  lower
+  v
+ Graph (nodes + edges)
+  |  schedule (topological sort)
+  v
+ ExecutionPlan
+  |  resolve (bind kernels + allocate buffers)
+  v
+ ResolvedPlan
+  |  stream (conduit pipeline)
+  v
+ stdin -> [process block] -> stdout
+```
+
+**Parse** converts `.mkl` text into an abstract syntax tree.
+**Lower** converts AST declarations into graph nodes and edges.
+**Schedule** topologically sorts the graph into a linear execution order.
+**Resolve** binds each node to its kernel function and allocates buffers. This happens once at startup.
+**Stream** runs the conduit pipeline: read a block from stdin, execute every node in order, write a block to stdout. This loop runs until the input stream ends.
+
+The key design principle is: do all allocation and lookup at setup time. The per-block hot path does zero allocation and zero map lookups.
+
+## Summary
+
+Musikell programs are graphs of nodes connected by edges. Each node runs a kernel that processes fixed-size blocks of audio. The graph is topologically sorted once at startup, and the execution loop processes blocks with zero per-block allocation. Feedback edges allow cycles by introducing a one-block delay.
+
+## Next Steps
+
+- [Nodes](nodes.mdx) -- detailed guide to all three node types
+- [Routing](routing.mdx) -- inputs, outputs, groups, and feedback

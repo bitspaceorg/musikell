@@ -1,0 +1,80 @@
+---
+title: "Crossfade Kernel"
+description: "Artifact-free route switching with linear crossfade between two inputs"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-crossfade"
+tags: ["reference", "runtime", "kernel", "crossfade"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Crossfade.hs"
+---
+
+## Purpose
+
+Crossfade kernel for artifact-free route switching. Blends linearly between two input sources over a configurable number of samples, eliminating clicks and discontinuities when switching signal paths.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Crossfade`
+
+---
+
+## Types
+
+### `CrossfadeState` (internal)
+
+```haskell
+data CrossfadeState = CrossfadeState
+  { cfPosition :: !Int
+  , cfFadeLen  :: !Int
+  , cfActive   :: !Bool
+  }
+```
+
+| Field        | Type    | Description                                         |
+| ------------ | ------- | --------------------------------------------------- |
+| `cfPosition` | `!Int`  | Current position within the fade (0 to `cfFadeLen`) |
+| `cfFadeLen`  | `!Int`  | Total fade length in samples                        |
+| `cfActive`   | `!Bool` | Whether a crossfade is currently in progress        |
+
+---
+
+## `mkCrossfade`
+
+**KernelId:** `"crossfade"`
+**Inputs:** 2 | **Outputs:** 1 | **Stateful:** Yes (CrossfadeState IORef)
+
+```haskell
+mkCrossfade :: BlockSize -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter | Type        | Description                   |
+| --------- | ----------- | ----------------------------- |
+| `fadeLen` | `BlockSize` | Crossfade duration in samples |
+
+### Behavior
+
+**When crossfade is not active:** passes input B (second input) through unchanged.
+
+**When crossfade is active:** linearly blends from input A (fading out) to input B (fading in):
+
+```
+t = position / fadeLen        -- 0.0 at start, 1.0 at end
+output[i] = A[i] * (1 - t) + B[i] * t
+```
+
+When the fade position reaches `fadeLen`, the crossfade completes: `cfActive` is set to `False` and `cfPosition` resets to 0.
+
+The crossfade progresses across block boundaries, advancing `cfPosition` by the block size each block until completion.
+
+## Example
+
+```mkl
+[route_a, route_b] -> crossfade(1024) -> output
+```
+
+## Usage Notes
+
+- Stateful kernel: must be created via `mkCrossfade` in IO. Not included in `builtinRegistry`.
+- The crossfade is initialized as inactive (`cfActive = False`). Activation must be triggered externally by modifying the `CrossfadeState` IORef.
+- The fade curve is linear. For equal-power crossfading, an external curve (e.g. sine-based) would need to be applied.
+- Input A is the source being faded out; input B is the source being faded in. When inactive, only input B passes through.

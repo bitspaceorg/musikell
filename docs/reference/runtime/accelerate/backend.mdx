@@ -1,0 +1,41 @@
+---
+title: "Musikell.Runtime.Accelerate.Backend"
+description: "Accelerate GPU backend type (stub)"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-accelerate-backend"
+tags: ["reference", "runtime", "accelerate"]
+source: "src/Musikell/Runtime/Accelerate/Backend.hs"
+---
+
+**Module:** `Musikell.Runtime.Accelerate.Backend`
+**Source:** `src/Musikell/Runtime/Accelerate/Backend.hs`
+**Dependencies:** none
+
+## Purpose
+
+Stub module for the Accelerate GPU backend. Currently provides only a type and default constructor. Kernels fall through to CPU execution via the shared `KernelRegistry`. When Accelerate support lands, this module will marshal buffers to Accelerate arrays, run GPU computations, and marshal back.
+
+## Types
+
+### `AccelerateBackend`
+
+```haskell
+newtype AccelerateBackend = AccelerateBackend
+  { accelerateDeviceId :: !Int
+  } deriving (Eq, Show)
+```
+
+| Field                | Type  | Description                               |
+| -------------------- | ----- | ----------------------------------------- |
+| `accelerateDeviceId` | `Int` | Device ID (0 = CPU interpreter, >0 = GPU) |
+
+## Functions
+
+### `defaultAccelerateBackend`
+
+```haskell
+defaultAccelerateBackend :: AccelerateBackend
+```
+
+Default backend: CPU interpreter (device ID 0).

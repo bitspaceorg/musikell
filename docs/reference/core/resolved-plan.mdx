@@ -1,0 +1,124 @@
+---
+title: "Musikell.Core.ResolvedPlan"
+description: "Pre-resolved execution plan for zero-allocation hot path"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-core-resolved-plan"
+tags: ["reference", "core"]
+source: "src/Musikell/Core/ResolvedPlan.hs"
+---
+
+The critical optimisation that makes Musikell's hot path competitive with C-based audio engines. `ResolvedPlan` captures all buffer pointers and kernel function references at build time. During execution, the scheduler walks a flat `Vector` calling each pre-built `IO ()` closure -- no Map lookups, no IntMap lookups, no list construction, no allocation.
+
+## Language extensions
+
+| Extension      | Reason                                                |
+| -------------- | ----------------------------------------------------- |
+| `BangPatterns` | Force evaluation of the execute closure at build time |
+
+## Dependencies
+
+| Package / Module              | Import                                                        |
+| ----------------------------- | ------------------------------------------------------------- |
+| `vector`                      | `Data.Vector (V)`                                             |
+| `text`                        | `Data.Text (pack)`                                            |
+| `Musikell.Core.Types`         | `NodeId, PortId(..), KernelId(..), SchedulerError(..)`        |
+| `Musikell.Core.Node`          | `NodeSpec, nodeKernel, nodeOutputs, portId`                   |
+| `Musikell.Core.Graph`         | `Graph, getNode, getIncomingEdges, Edge(..)`                  |
+| `Musikell.Core.ExecutionPlan` | `ExecutionPlan, planNodes`                                    |
+| `Musikell.Memory.Buffer`      | `Buffer`                                                      |
+| `Musikell.Memory.Pool`        | `BufferPool, getPoolBuffer`                                   |
+| `Musikell.Runtime.Kernel`     | `KernelSpec(..), KernelRegistry, lookupKernel, kernelExecute` |
+
+## Types
+
+### ResolvedNode
+
+A pre-resolved node: kernel function and buffer references captured at build time.
+
+```haskell
+data ResolvedNode = ResolvedNode
+  { rnNodeId  :: !NodeId
+  , rnKernel  :: !KernelId
+  , rnInputs  :: ![Buffer]
+  , rnOutputs :: ![Buffer]
+  , rnExecute :: IO ()
+  }
+```
+
+| Field       | Type       | Strictness                                    | Description                                            |
+| ----------- | ---------- | --------------------------------------------- | ------------------------------------------------------ |
+| `rnNodeId`  | `NodeId`   | strict                                        | Node this resolved entry corresponds to                |
+| `rnKernel`  | `KernelId` | strict                                        | Kernel identifier (retained for debugging)             |
+| `rnInputs`  | `[Buffer]` | lazy                                          | Pre-resolved input buffer references                   |
+| `rnOutputs` | `[Buffer]` | lazy                                          | Pre-resolved output buffer references                  |
+| `rnExecute` | `IO ()`    | lazy (but forced at build via `BangPatterns`) | Pre-built closure: `kernelExecute spec inputs outputs` |
+
+The `rnExecute` closure captures `spec`, `inputs`, and `outputs` at build time. Calling it processes one block through the kernel with zero lookups.
+
+### ResolvedPlan
+
+```haskell
+newtype ResolvedPlan = ResolvedPlan
+  { rpNodes :: V.Vector ResolvedNode
+  }
+```
+
+| Field     | Type                    | Description                                            |
+| --------- | ----------------------- | ------------------------------------------------------ |
+| `rpNodes` | `V.Vector ResolvedNode` | Flat vector of pre-resolved nodes in topological order |
+
+Custom `Show` instance: `"ResolvedPlan[N nodes]"`.
+
+## Functions
+
+### buildResolvedPlan
+
+```haskell
+buildResolvedPlan
+  :: ExecutionPlan
+  -> Graph
+  -> KernelRegistry
+  -> BufferPool
+  -> Either SchedulerError ResolvedPlan
+```
+
+Called **once** at initialisation time. Resolves all kernel references and buffer pointers so the hot path does zero lookups.
+
+For each node in the execution plan:
+
+1. Look up the `NodeSpec` in the graph
+2. Look up the `KernelSpec` in the registry by `KernelId`
+3. Resolve input buffers by following incoming edges to source node/port pairs in the pool
+4. Resolve output buffers by looking up each output port in the pool
+5. Build the execute closure: `kernelExecute spec inputs outputs` (forced with `BangPatterns`)
+
+| Error                                                      | Condition                                |
+| ---------------------------------------------------------- | ---------------------------------------- |
+| `KernelExecutionFailed (KernelId "?") "node not in graph"` | Node ID from plan not found in graph     |
+| `KernelExecutionFailed kid "kernel not registered"`        | Kernel ID not found in registry          |
+| `MissingBuffer nid (PortId 0)`                             | Input or output buffer not found in pool |
+
+### executeResolvedBlock
+
+```haskell
+executeResolvedBlock :: ResolvedPlan -> IO ()
+```
+
+Execute one block through the resolved plan. Walks the flat vector calling each pre-built closure via `V.mapM_ rnExecute`. Zero lookups, zero allocation -- just function calls.
+
+Marked `{-# INLINE #-}` to allow GHC to fuse the loop.
+
+### resolvedPlanLength
+
+```haskell
+resolvedPlanLength :: ResolvedPlan -> Int
+```
+
+Number of nodes in the resolved plan. Equivalent to `V.length . rpNodes`.
+
+## Design rationale
+
+The standard execution path (`executeBlock` in `Scheduler`) performs Map lookups, IntMap lookups, and list construction on every block for every node. At 44100 Hz / 256 frames per block, that is ~172 blocks per second -- each doing O(V \* (log V + E)) work in lookups alone.
+
+`ResolvedPlan` amortises all lookup cost to a single `buildResolvedPlan` call. The per-block cost is a single `V.mapM_` over a contiguous vector of closures -- O(V) with minimal cache pressure and zero allocation.

@@ -1,0 +1,99 @@
+---
+title: "Kernel"
+description: "KernelSpec abstraction and KernelRegistry for kernel lookup and registration"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel"
+tags: ["reference", "runtime", "kernel"]
+source: "src/Musikell/Runtime/Kernel.hs"
+---
+
+## Purpose
+
+Defines the backend-agnostic kernel abstraction. A kernel is a function that reads from input buffers and writes into pre-allocated output buffers. Kernels MUST NOT allocate memory -- all output buffers are owned by the caller (BufferPool) and pre-allocated before the first block is ever executed.
+
+Both CPU and Accelerate backends share these types.
+
+**Module:** `Musikell.Runtime.Kernel`
+
+## Types
+
+### `KernelSpec`
+
+A kernel implementation record.
+
+```haskell
+data KernelSpec = KernelSpec
+  { kernelId      :: !KernelId
+  , kernelInputs  :: !Int
+  , kernelOutputs :: !Int
+  , kernelExecute :: [Buffer] -> [Buffer] -> IO ()
+  }
+```
+
+| Field           | Type                            | Description                                    |
+| --------------- | ------------------------------- | ---------------------------------------------- |
+| `kernelId`      | `!KernelId`                     | Unique identifier for this kernel              |
+| `kernelInputs`  | `!Int`                          | Number of input buffers expected               |
+| `kernelOutputs` | `!Int`                          | Number of output buffers expected              |
+| `kernelExecute` | `[Buffer] -> [Buffer] -> IO ()` | Execute function: reads inputs, writes outputs |
+
+`KernelSpec` has a `Show` instance that displays `KernelSpec<kernelId>`.
+
+### `KernelRegistry`
+
+Map from `KernelId` to its implementation.
+
+```haskell
+newtype KernelRegistry = KernelRegistry (Map KernelId KernelSpec)
+```
+
+`Show` instance displays `KernelRegistry[size]`.
+
+## Functions
+
+### `emptyRegistry`
+
+```haskell
+emptyRegistry :: KernelRegistry
+```
+
+Create an empty kernel registry.
+
+### `registerKernel`
+
+```haskell
+registerKernel :: KernelSpec -> KernelRegistry -> KernelRegistry
+```
+
+Register a kernel spec in the registry. Overwrites any existing entry with the same `KernelId`.
+
+### `lookupKernel`
+
+```haskell
+lookupKernel :: KernelId -> KernelRegistry -> Maybe KernelSpec
+```
+
+Look up a kernel by its `KernelId`. Returns `Nothing` if not found.
+
+### `registryKernels`
+
+```haskell
+registryKernels :: KernelRegistry -> [KernelSpec]
+```
+
+Return all registered kernel specs as a list.
+
+### `registrySize`
+
+```haskell
+registrySize :: KernelRegistry -> Int
+```
+
+Return the number of registered kernels.
+
+## Usage Notes
+
+- The `kernelExecute` signature `[Buffer] -> [Buffer] -> IO ()` allocates lists per call per block. This is a known performance issue documented in open issues. A future revision will switch to an unboxed representation.
+- Both input and output buffer lists are guaranteed to have the correct length by the scheduler. The kernel MUST NOT allocate or free buffers.
+- The registry uses `Data.Map.Strict` internally, giving O(log n) lookup by `KernelId`.

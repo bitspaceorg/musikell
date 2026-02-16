@@ -1,0 +1,130 @@
+---
+title: "Musikell.CLI.Dispatch"
+description: "IO dispatch — maps parsed commands to runtime actions"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-cli-dispatch"
+tags: ["reference", "cli"]
+source: "src/Musikell/CLI/Dispatch.hs"
+---
+
+Maps parsed `Command` values to IO actions. This is the bridge between the pure CLI parser and the runtime.
+
+## Language extensions
+
+| Extension           | Reason                        |
+| ------------------- | ----------------------------- |
+| `OverloadedStrings` | Text literals in log messages |
+
+## Dependencies
+
+| Package  | Import                                                       |
+| -------- | ------------------------------------------------------------ |
+| `text`   | `Data.Text`, `Data.Text.IO`                                  |
+| `base`   | `System.Exit (exitFailure)`, `System.IO (hPutStrLn, stderr)` |
+| musikell | `Musikell.CLI.Command`                                       |
+| musikell | `Musikell.Config.Types (setConfigKey, getConfigKey)`         |
+| musikell | `Musikell.Backend.Resolver (resolveBackend)`                 |
+| musikell | `Musikell.Language.Parser (parseFile)`                       |
+| musikell | `Musikell.Language.Lowering (lowerProgram, LoweringResult)`  |
+| musikell | `Musikell.Core.Types (defaultChannelCount)`                  |
+| musikell | `Musikell.IO.ConduitPipeline (runPipeline)`                  |
+| musikell | `Musikell.Runtime.Kernel (KernelRegistry, registerKernel)`   |
+| musikell | `Musikell.Runtime.Kernel.Builtin (builtinRegistry)`          |
+| musikell | `Musikell.Runtime.Kernel.Foreign (loadBackend)`              |
+
+## Functions
+
+### dispatch
+
+```haskell
+dispatch :: Command -> IO ()
+```
+
+Main dispatch. Pattern matches on `Command` and delegates:
+
+| Command                | Action               |
+| ---------------------- | -------------------- |
+| `CmdRun opts file`     | `runGraph opts file` |
+| `CmdConfigSet key val` | `configSet key val`  |
+| `CmdConfigGet key`     | `configGet key`      |
+| `CmdVersion`           | `printVersion`       |
+| `CmdHelp`              | `printHelp`          |
+
+### configSet
+
+```haskell
+configSet :: Text -> Text -> IO ()
+```
+
+Set a config key-value pair via `setConfigKey`. Logs `[musikell] set key=value` to stderr.
+
+### configGet
+
+```haskell
+configGet :: Text -> IO ()
+```
+
+Get a config value via `getConfigKey`. Prints the value to stdout if set, or logs `[musikell] key is not set` to stderr.
+
+### resolveBackendOption
+
+```haskell
+resolveBackendOption :: BackendOption -> IO (Maybe Text)
+```
+
+Resolve a `BackendOption` to a `Maybe Text` flake reference:
+
+| Input                 | Output                           |
+| --------------------- | -------------------------------- |
+| `BackendDefault`      | `getConfigKey "default_backend"` |
+| `BackendExplicit ref` | `Just ref`                       |
+| `BackendNone`         | `Nothing`                        |
+
+### buildRegistry
+
+```haskell
+buildRegistry :: Maybe Text -> IO KernelRegistry
+```
+
+Build the kernel registry. If `Nothing`, returns `builtinRegistry`. If `Just flakeRef`, resolves the backend via `resolveBackend`, loads the shared library via `loadBackend`, and folds the external kernel specs into `builtinRegistry` via `registerKernel`. Calls `exitFailure` on resolve or load errors.
+
+### runGraph
+
+```haskell
+runGraph :: RunOptions -> FilePath -> IO ()
+```
+
+The full pipeline: parse, lower, schedule, stream.
+
+1. Resolve backend option via `resolveBackendOption`
+2. Build kernel registry via `buildRegistry`
+3. Parse the `.mkl` file via `parseFile`
+4. Lower the AST via `lowerProgram registry ast`
+5. Extract `lowerPlan`, `lowerGraph`, `lowerRegistry`, `lowerInputNode`, `lowerOutputNode` from the `LoweringResult`
+6. Run the streaming pipeline via `runPipeline`
+
+Calls `exitFailure` on parse or lowering errors. Logs progress to stderr.
+
+### printVersion
+
+```haskell
+printVersion :: IO ()
+```
+
+Prints `musikell 0.1.0` and `ABI version: 1` to stdout.
+
+### printHelp
+
+```haskell
+printHelp :: IO ()
+```
+
+Prints full help text to stdout, including:
+
+- Subcommands: `run`, `config set`, `config get`, `version`, `help`
+- Run flags: `--block`, `--backend`, `--no-backend`
+- Backend configuration example
+- Streaming model: `./input.sh | musikell run graph.mkl | ./output.sh`
+- PCM format: 32-bit float, little-endian
+- Defaults: sample rate 44100 Hz, block size 256 samples

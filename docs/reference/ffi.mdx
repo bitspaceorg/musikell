@@ -1,0 +1,20 @@
+---
+title: "FFI Layer"
+description: "C foreign function interface — bridge, exports, ABI contract"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-ffi"
+tags: ["reference", "ffi"]
+---
+
+FFI layer: C interop for external backends and runtime control.
+
+The FFI layer provides the stable C ABI contract that external backend authors implement, the Haskell-side bridge types for marshalling data across the FFI boundary, and the exported C symbols for runtime lifecycle management.
+
+## Modules
+
+| Module                     | Description                                                                       |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| [Bridge](ffi/bridge.mdx)   | C-compatible types and marshalling: CBuffer, CKernelDescriptor, function pointers |
+| [Exports](ffi/exports.mdx) | Foreign-exported C symbols: init, shutdown, version, block size control           |
+| [ABI](ffi/abi.mdx)         | C ABI contract v1 specification for external backend authors                      |

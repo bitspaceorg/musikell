@@ -1,0 +1,145 @@
+---
+title: "Conditional"
+description: "Bypass, mute, and crossfade: controlling signal routing in Musikell"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "guide/conditional"
+tags: ["guide", "conditional", "routing", "bypass", "mute", "crossfade"]
+---
+
+# Conditional
+
+## What You'll Learn
+
+- How `bypass` passes input through a node unchanged
+- How `mute` silences a node's output
+- How `Crossfade` smoothly transitions between two signals
+- When to use each routing strategy
+
+## Prerequisites
+
+- [Nodes](nodes.mdx) -- understanding of the three node types
+- [Routing](routing.mdx) -- understanding of signal flow
+
+## Bypass
+
+The `bypass` prefix keeps a node in the graph but routes the input signal directly to the output, skipping the kernel entirely.
+
+### Syntax
+
+```mkl
+bypass name = Manipulative<input>.Kernel(params)
+```
+
+### Example
+
+```mkl
+input mic
+
+-- This filter exists in the graph but does not process audio
+bypass filtered = Manipulative<mic>.Filter<LP>(cutoff=1000, resonance=0.7)
+
+output filtered
+```
+
+When bypassed, `filtered` outputs exactly what `mic` produces. The filter kernel is not called, saving CPU. Bypass state can be toggled at runtime, allowing you to A/B compare the effect.
+
+### Use Cases
+
+- **A/B testing** an effect during a live performance
+- **Debugging** a signal chain by isolating which node changes the sound
+- **Preset switching** where some effects are active in one preset and bypassed in another
+
+## Mute
+
+The `mute` prefix silences a node's output by writing zeros to its output buffer.
+
+### Syntax
+
+```mkl
+mute name = Creational.Kernel(params)
+mute name = Manipulative<input>.Kernel(params)
+```
+
+### Example
+
+```mkl
+-- Click track: exists but is silent by default
+mute click = Creational.Oscillator<Square>(freq=1000)
+
+-- Noise generator: muted until needed
+mute noise = Creational.Noise<White>(seed=42)
+```
+
+Muted nodes still exist in the graph. Their kernels are not called, and their output is silence. Mute state can be toggled at runtime.
+
+### Bypass vs. Mute
+
+|               | Bypass                                             | Mute                       |
+| ------------- | -------------------------------------------------- | -------------------------- |
+| Output        | Input signal passed through                        | Silence (zeros)            |
+| Kernel called | No                                                 | No                         |
+| Applicable to | Manipulative nodes (need an input to pass through) | Any node type              |
+| Purpose       | Skip processing, keep signal                       | Silence a source or effect |
+
+## Crossfade
+
+The `Crossfade` kernel is a Conditional node that smoothly transitions between two input signals. It avoids the clicks and pops that would occur from an instantaneous switch.
+
+### Syntax
+
+```mkl
+name = Conditional<signal_a, signal_b>.Crossfade()
+```
+
+### Example
+
+```mkl
+-- Two different reverb settings
+small_room = Manipulative<vocal>.Reverb(room=0.3, decay=0.8, damping=0.4, mix=0.2)
+large_hall = Manipulative<vocal>.Reverb(room=0.8, decay=2.5, damping=0.3, mix=0.35)
+
+-- Smooth crossfade between them
+reverb_blend = Conditional<small_room, large_hall>.Crossfade()
+```
+
+The crossfade position can be controlled at runtime, allowing smooth transitions between the two signals over a configurable duration.
+
+### Wet/Dry Mixing
+
+A common use of crossfade is wet/dry mixing where you want smooth control:
+
+```mkl
+dry = Manipulative<guitar>.Gain(level=1.0)
+wet = Manipulative<guitar>.Reverb(room=0.6, decay=1.5, mix=1.0)
+blend = Conditional<dry, wet>.Crossfade()
+```
+
+## Advanced: Switch/Case Routing
+
+For more complex routing decisions, the DSL supports switch/case patterns that route audio based on signal properties. This is used in larger programs for dynamic routing:
+
+```mkl
+-- Route based on amplitude: quiet signals get more reverb
+group reverb_paths {
+    big = Manipulative<drums>.Reverb(room=0.85, decay=2.4, mix=0.3)
+    small = Manipulative<drums>.Reverb(room=0.3, decay=0.8, mix=0.1)
+}
+
+drums_verb = Conditional<drums>.switch<AMPLITUDE>(reverb_paths.small)
+    .case(0.0, 0.4, reverb_paths.big)
+    .case(0.4, MAX, reverb_paths.small)
+```
+
+This reads: "If the amplitude of `drums` is between 0.0 and 0.4, route to `big` reverb. If between 0.4 and MAX, route to `small` reverb."
+
+See the [live-rig example](guide/examples/live-rig.mkl) for a full program using switch/case routing.
+
+## Summary
+
+`bypass` passes input through unchanged, useful for A/B testing. `mute` outputs silence, useful for toggling sources on and off. `Crossfade` smoothly blends between two signals, avoiding clicks. Switch/case routing enables dynamic signal paths based on signal properties like amplitude or frequency.
+
+## Next Steps
+
+- [Stereo](stereo.mdx) -- channels, .L/.R access, mono-to-stereo
+- [Examples](examples.mdx) -- complete programs using conditional routing

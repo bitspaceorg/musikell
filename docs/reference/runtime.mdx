@@ -1,0 +1,38 @@
+---
+title: "Runtime Layer"
+description: "Kernel abstraction, builtin kernels, parameter smoothing"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime"
+tags: ["reference", "runtime"]
+---
+
+Runtime layer: kernel abstraction, builtin DSP kernels, parameter smoothing.
+
+## Modules
+
+| Module                                        | Description                                          |
+| --------------------------------------------- | ---------------------------------------------------- |
+| [Kernel](runtime/kernel.mdx)                  | KernelSpec, KernelRegistry — the kernel abstraction  |
+| [Param](runtime/param.mdx)                    | RampState — per-sample parameter smoothing           |
+| [Builtin Kernels](runtime/kernel/builtin.mdx) | Index of all builtin kernel modules                  |
+| [Util](runtime/kernel/util.mdx)               | forRange\_, flushDenormals — shared kernel utilities |
+| [Foreign](runtime/kernel/foreign.mdx)         | Load external kernels via dlopen                     |
+
+## Builtin Kernel Reference
+
+| Kernel                                      | Module                                  | Description                            |
+| ------------------------------------------- | --------------------------------------- | -------------------------------------- |
+| [IO](runtime/kernel/io.mdx)                 | input, output, passthru, null           | Signal routing primitives              |
+| [Gain](runtime/kernel/gain.mdx)             | gainKernel                              | Amplitude scaling                      |
+| [Mix](runtime/kernel/mix.mdx)               | mixKernel, clipKernel                   | Signal mixing and clipping             |
+| [Oscillator](runtime/kernel/oscillator.mdx) | PolyBLEP sine/square/saw/triangle       | Band-limited oscillators               |
+| [Delay](runtime/kernel/delay.mdx)           | mkDelay, mkDelayInterpolated            | Delay lines                            |
+| [Filter](runtime/kernel/filter.mdx)         | mkSVFilter                              | State-variable filter (LP/HP/BP/Notch) |
+| [Dynamics](runtime/kernel/dynamics.mdx)     | mkCompressor, mkLimiter, mkGate         | Dynamics processing                    |
+| [Reverb](runtime/kernel/reverb.mdx)         | mkFDNReverb                             | Feedback delay network reverb          |
+| [Noise](runtime/kernel/noise.mdx)           | mkWhiteNoise, mkPinkNoise, mkBrownNoise | Noise generators                       |
+| [Envelope](runtime/kernel/envelope.mdx)     | mkADSR                                  | ADSR envelope generator                |
+| [Channel](runtime/kernel/channel.mdx)       | split, merge, mono-to-stereo            | Channel manipulation                   |
+| [Sequencer](runtime/kernel/sequencer.mdx)   | mkBeatSequencer                         | Beat pattern sequencing                |
+| [Crossfade](runtime/kernel/crossfade.mdx)   | mkCrossfade                             | Route switching with fade              |

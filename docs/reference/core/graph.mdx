@@ -1,0 +1,145 @@
+---
+title: "Musikell.Core.Graph"
+description: "DAG representation with forward and feedback edges"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-core-graph"
+tags: ["reference", "core"]
+source: "src/Musikell/Core/Graph.hs"
+---
+
+The audio processing graph. Nodes are stored in a strict `IntMap`; edges are stored as a list. Forward edges must form a DAG. Feedback edges are exempt from cycle detection and introduce a one-block delay.
+
+## Dependencies
+
+| Package / Module      | Import                                  |
+| --------------------- | --------------------------------------- |
+| `containers`          | `Data.IntMap.Strict (IntMap)`           |
+| `base`                | `Data.List (foldl')`                    |
+| `Musikell.Core.Types` | `NodeId(..), PortId, GraphError(..)`    |
+| `Musikell.Core.Node`  | `NodeSpec, nodeId, hasOutput, hasInput` |
+
+## Types
+
+### EdgeKind
+
+```haskell
+data EdgeKind
+  = ForwardEdge    -- Normal forward data flow
+  | FeedbackEdge   -- One-block-delay feedback loop
+  deriving (Eq, Show)
+```
+
+| Constructor    | Description                                                 |
+| -------------- | ----------------------------------------------------------- |
+| `ForwardEdge`  | Normal forward data flow; must not form cycles              |
+| `FeedbackEdge` | One-block-delay feedback loop; excluded from DAG validation |
+
+### Edge
+
+An edge connects an output port of one node to an input port of another.
+
+```haskell
+data Edge = Edge
+  { edgeSource :: !(NodeId, PortId)
+  , edgeSink   :: !(NodeId, PortId)
+  , edgeKind   :: !EdgeKind
+  } deriving (Eq, Show)
+```
+
+| Field        | Type               | Strictness | Description                     |
+| ------------ | ------------------ | ---------- | ------------------------------- |
+| `edgeSource` | `(NodeId, PortId)` | strict     | Source node and output port     |
+| `edgeSink`   | `(NodeId, PortId)` | strict     | Destination node and input port |
+| `edgeKind`   | `EdgeKind`         | strict     | Forward or feedback             |
+
+### Graph
+
+The audio processing graph. Must be a DAG when feedback edges are excluded.
+
+```haskell
+data Graph = Graph
+  { graphNodes :: !(IntMap NodeSpec)
+  , graphEdges :: ![Edge]
+  } deriving (Eq, Show)
+```
+
+| Field        | Type              | Strictness     | Description                                   |
+| ------------ | ----------------- | -------------- | --------------------------------------------- |
+| `graphNodes` | `IntMap NodeSpec` | strict         | Node storage keyed by raw `Int` from `NodeId` |
+| `graphEdges` | `[Edge]`          | strict (spine) | All edges (forward and feedback)              |
+
+## Construction functions
+
+| Function         | Signature                                      | Description                                                                         |
+| ---------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `mkEdge`         | `NodeId -> PortId -> NodeId -> PortId -> Edge` | Create a forward edge from source (node, port) to sink (node, port)                 |
+| `mkFeedbackEdge` | `NodeId -> PortId -> NodeId -> PortId -> Edge` | Create a feedback edge from source to sink                                          |
+| `emptyGraph`     | `Graph`                                        | Empty graph with no nodes or edges                                                  |
+| `addNode`        | `NodeSpec -> Graph -> Either GraphError Graph` | Add a node; fails with `DuplicateNodeId` if ID already exists                       |
+| `addEdge`        | `Edge -> Graph -> Either GraphError Graph`     | Add an edge; validates ports for forward edges, skips validation for feedback edges |
+
+### addNode
+
+```haskell
+addNode :: NodeSpec -> Graph -> Either GraphError Graph
+```
+
+Inserts the node into `graphNodes` keyed by the raw `Int` from `nodeId`. Returns `Left (DuplicateNodeId _)` if a node with the same ID already exists.
+
+### addEdge
+
+```haskell
+addEdge :: Edge -> Graph -> Either GraphError Graph
+```
+
+For **forward edges**, validates that:
+
+1. The source node exists and has the specified output port
+2. The destination node exists and has the specified input port
+
+Returns `DanglingEdge` if a node is missing, `InvalidPort` if a port is missing.
+
+For **feedback edges**, validation is skipped entirely -- the edge is prepended to `graphEdges` unconditionally. This allows feedback targets that appear later in topological order.
+
+## Query functions
+
+| Function           | Signature                           | Description                                               |
+| ------------------ | ----------------------------------- | --------------------------------------------------------- |
+| `nodeCount`        | `Graph -> Int`                      | Number of nodes (`IntMap.size`)                           |
+| `edgeCount`        | `Graph -> Int`                      | Number of edges (`length`)                                |
+| `getNode`          | `NodeId -> Graph -> Maybe NodeSpec` | Lookup a node by ID                                       |
+| `getNodes`         | `Graph -> [NodeSpec]`               | All nodes in the graph                                    |
+| `getEdges`         | `Graph -> [Edge]`                   | All edges in the graph                                    |
+| `getIncomingEdges` | `NodeId -> Graph -> [Edge]`         | Edges where the given node is the destination (O(E) scan) |
+| `getOutgoingEdges` | `NodeId -> Graph -> [Edge]`         | Edges where the given node is the source (O(E) scan)      |
+
+## Validation functions
+
+| Function        | Signature                       | Description                                                                          |
+| --------------- | ------------------------------- | ------------------------------------------------------------------------------------ |
+| `validateGraph` | `Graph -> Either GraphError ()` | Validate that forward edges form a DAG; returns `Left (CycleDetected [])` on failure |
+| `isDAG`         | `Graph -> Bool`                 | Pure DAG check using Kahn's algorithm on forward edges only                          |
+
+### isDAG (internal algorithm)
+
+Uses Kahn's algorithm:
+
+1. Compute in-degree for each node considering only `ForwardEdge` edges
+2. Seed the queue with all nodes having in-degree 0
+3. Process each node: decrement in-degree of its neighbors, enqueue those reaching 0
+4. The graph is a DAG if and only if all nodes are processed
+
+Feedback edges are excluded from the in-degree computation and adjacency list, so feedback loops do not trigger cycle detection.
+
+## Complexity
+
+| Operation            | Time                                                |
+| -------------------- | --------------------------------------------------- |
+| `addNode`            | O(log n)                                            |
+| `addEdge` (forward)  | O(E) for port validation via `hasInput`/`hasOutput` |
+| `addEdge` (feedback) | O(1) prepend                                        |
+| `getNode`            | O(log n)                                            |
+| `getIncomingEdges`   | O(E) linear scan                                    |
+| `getOutgoingEdges`   | O(E) linear scan                                    |
+| `isDAG`              | O(V + E)                                            |

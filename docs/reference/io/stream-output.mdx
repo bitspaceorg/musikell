@@ -1,0 +1,90 @@
+---
+title: "Musikell.IO.StreamOutput"
+description: "Raw PCM output to stdout with safe and zero-copy buffer conversion"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-io-stream-output"
+tags: ["reference", "io"]
+source: "src/Musikell/IO/StreamOutput.hs"
+---
+
+Raw PCM output to stdout. Format: 32-bit IEEE 754 float, little-endian, mono.
+
+## Dependencies
+
+| Package      | Import                                                            |
+| ------------ | ----------------------------------------------------------------- |
+| `base`       | `Control.Monad.IO.Class (liftIO)`                                 |
+| `bytestring` | `Data.ByteString`, `Data.ByteString.Unsafe`                       |
+| `conduit`    | `Data.Conduit (ConduitT, await)`                                  |
+| `base`       | `Foreign.Ptr (Ptr, castPtr)`, `Foreign.Marshal.Utils (copyBytes)` |
+| `base`       | `Data.Word (Word8)`                                               |
+| `base`       | `System.IO (stdout, hFlush)`                                      |
+| musikell     | `Musikell.Memory.Buffer (Buffer, unsafeWithBuffer)`               |
+
+## Functions
+
+### Block writing
+
+#### writeBlock
+
+```haskell
+writeBlock :: ByteString -> IO ()
+```
+
+Write raw PCM bytes to stdout and flush. Equivalent to `BS.hPut stdout bs >> hFlush stdout`.
+
+### Conduit sink
+
+#### sinkStdout
+
+```haskell
+sinkStdout :: ConduitT ByteString () IO ()
+```
+
+Conduit sink that writes blocks to stdout. Awaits `ByteString` values and passes each to `writeBlock`. Terminates when upstream closes.
+
+### Conversion
+
+#### bufferToBytes
+
+```haskell
+bufferToBytes :: Buffer -> IO ByteString
+```
+
+Safe version: copies the buffer data into a new `ByteString`. Reinterprets the float data as bytes (IEEE 754, native byte order). Allocates `size * 4` bytes via `BS.packCStringLen`. Use this when the `ByteString` must outlive the next buffer write.
+
+#### unsafeBufferToBytes
+
+```haskell
+unsafeBufferToBytes :: Buffer -> IO ByteString
+```
+
+Zero-copy buffer to `ByteString`. Shares the underlying pointer -- the result is only valid until the next write into this buffer. Uses `BSU.unsafePackCStringLen`. This is the hot-path function used in `processConduit`, where the `ByteString` is consumed (written to stdout) before the next block overwrites the buffer.
+
+#### bufferIntoBs
+
+```haskell
+bufferIntoBs :: Buffer -> Ptr Word8 -> IO ()
+```
+
+Write buffer contents into a pre-allocated output staging area via `memcpy`. The caller is responsible for allocating the destination pointer with at least `size * 4` bytes.
+
+| Parameter | Type        | Description                       |
+| --------- | ----------- | --------------------------------- |
+| `buf`     | `Buffer`    | Source buffer                     |
+| `dstPtr`  | `Ptr Word8` | Pre-allocated destination pointer |
+
+#### bufferToBlock
+
+```haskell
+bufferToBlock :: Buffer -> IO ByteString
+```
+
+Alias for `bufferToBytes`.
+
+## Usage Notes
+
+- `unsafeBufferToBytes` is the hot-path function. It performs zero allocation and zero copying. The returned `ByteString` shares the buffer's underlying memory and is invalidated by any subsequent write to the buffer.
+- `bufferToBytes` is safe but allocates. Use it when the `ByteString` must persist beyond the current block.
+- `bufferIntoBs` is for advanced use where the caller manages a staging area (e.g., a pre-allocated output region for batched writes).

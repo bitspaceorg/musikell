@@ -1,0 +1,94 @@
+---
+title: "Musikell.Core.ExecutionPlan"
+description: "Topologically sorted execution order via Kahn's algorithm"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-core-execution-plan"
+tags: ["reference", "core"]
+source: "src/Musikell/Core/ExecutionPlan.hs"
+---
+
+Builds an immutable execution plan from a validated graph. The plan is a topologically sorted list of `NodeId` values that determines the order in which kernels are executed each block.
+
+## Dependencies
+
+| Package / Module      | Import                                                                 |
+| --------------------- | ---------------------------------------------------------------------- |
+| `containers`          | `Data.IntMap.Strict (IntMap)`                                          |
+| `base`                | `Data.List (foldl')`                                                   |
+| `Musikell.Core.Types` | `NodeId(..), PlanError(..), GraphError(..)`                            |
+| `Musikell.Core.Graph` | `Graph, graphNodes, graphEdges, validateGraph, Edge(..), EdgeKind(..)` |
+
+## Types
+
+### ExecutionPlan
+
+```haskell
+newtype ExecutionPlan = ExecutionPlan
+  { planOrder :: [NodeId]
+  } deriving (Eq, Show)
+```
+
+| Field       | Type       | Description                   |
+| ----------- | ---------- | ----------------------------- |
+| `planOrder` | `[NodeId]` | Topologically sorted node IDs |
+
+## Functions
+
+### buildPlan
+
+```haskell
+buildPlan :: Graph -> Either PlanError ExecutionPlan
+```
+
+Build an execution plan from a graph. Performs two checks before sorting:
+
+1. **Graph validation** -- calls `validateGraph`; wraps failures in `GraphValidationFailed`
+2. **Empty graph check** -- returns `EmptyGraph` if the graph has no nodes
+
+On success, performs a topological sort and returns the plan.
+
+| Error                       | Condition                                       |
+| --------------------------- | ----------------------------------------------- |
+| `GraphValidationFailed err` | Forward edges form a cycle or ports are invalid |
+| `EmptyGraph`                | Graph contains zero nodes                       |
+
+### planLength
+
+```haskell
+planLength :: ExecutionPlan -> Int
+```
+
+Number of nodes in the plan. Equivalent to `length . planOrder`.
+
+### planNodes
+
+```haskell
+planNodes :: ExecutionPlan -> [NodeId]
+```
+
+The ordered list of node IDs. Equivalent to `planOrder`.
+
+## Internal: topologicalSort
+
+```haskell
+topologicalSort :: Graph -> [NodeId]  -- not exported
+```
+
+Kahn's algorithm on forward edges only (feedback edges excluded):
+
+1. Compute in-degree for every node from `ForwardEdge` edges
+2. Seed the queue with nodes having in-degree 0
+3. Build an adjacency list from forward edges
+4. Process the queue: for each node, decrement in-degree of its forward neighbors; enqueue any neighbor reaching 0
+5. Accumulate processed nodes in reverse, then `reverse` the result
+
+This produces a deterministic topological order (stable with respect to `IntMap` key ordering).
+
+## Complexity
+
+| Operation    | Time                                      |
+| ------------ | ----------------------------------------- |
+| `buildPlan`  | O(V + E) -- dominated by topological sort |
+| `planLength` | O(n) -- list length                       |
+| `planNodes`  | O(1) -- field accessor                    |

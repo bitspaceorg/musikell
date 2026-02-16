@@ -1,0 +1,122 @@
+---
+title: "Examples"
+description: "Annotated Musikell example programs"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "guide/examples"
+tags: ["guide", "examples"]
+---
+
+# Examples
+
+## What You'll Learn
+
+- How to read and understand complete `.mkl` programs
+- Common patterns for different use cases
+- How concepts from the guide come together in practice
+
+## Prerequisites
+
+- All previous guide sections, especially [Nodes](nodes.mdx), [Routing](routing.mdx), and [Effects](effects.mdx)
+
+## Example Programs
+
+| Example                                       | Description                    | Concepts Used                               |
+| --------------------------------------------- | ------------------------------ | ------------------------------------------- |
+| [hello-sine.mkl](examples/hello-sine.mkl)     | Basic sine wave output         | Creational node, input/output               |
+| [drum-machine.mkl](examples/drum-machine.mkl) | Beat sequencer with effects    | Sequencer, noise, filter, mix               |
+| [vocal-chain.mkl](examples/vocal-chain.mkl)   | Input processing chain         | Filter, compressor, reverb                  |
+| [live-rig.mkl](examples/live-rig.mkl)         | Complex live performance setup | Groups, feedback, conditional, multi-output |
+
+## hello-sine.mkl
+
+The simplest Musikell program. Generates a 440 Hz sine wave and writes it to stdout.
+
+```mkl
+input stdin
+osc = Creational.Oscillator<Sine>(freq=440)
+output osc
+```
+
+**Key points:**
+
+- `input stdin` is required even if the program does not read external audio.
+- `Creational.Oscillator<Sine>` generates audio from nothing.
+- `output osc` designates which node writes to stdout.
+
+Run it: `musikell run hello-sine.mkl | aplay -f FLOAT_LE -r 44100 -c 1`
+
+## drum-machine.mkl
+
+A simple drum machine with kick and hi-hat patterns using the Sequencer kernel.
+
+```mkl
+input stdin
+
+kick_seq = Creational.Sequencer(pattern=|x...x...x...x...|, bpm=120, subdivision=4)
+kick_osc = Creational.Oscillator<Sine>(freq=60)
+kick = Manipulative<kick_osc, kick_seq>.Gain(level=0.8)
+
+hat_seq = Creational.Sequencer(pattern=|..x...x...x...x.|, bpm=120, subdivision=4)
+hat_noise = Creational.Noise<White>(seed=42)
+hat_filtered = Manipulative<hat_noise>.Filter<HP>(cutoff=8000, resonance=0.3)
+hat = Manipulative<hat_filtered, hat_seq>.Gain(level=0.4)
+
+mix = Manipulative<kick, hat>.Mix()
+output mix
+```
+
+**Key points:**
+
+- Sequencer outputs a gate signal (1.0 or 0.0), not audio.
+- The gate is multiplied with an audio source via `Gain` to produce rhythmic sound.
+- Kick uses a low sine oscillator (60 Hz). Hi-hat uses high-passed white noise.
+- `Mix` sums the two signals.
+
+## vocal-chain.mkl
+
+A processing chain for vocal input: high-pass filter, compressor, and reverb.
+
+```mkl
+input mic
+
+filtered = Manipulative<mic>.Filter<HP>(cutoff=80, resonance=0.5)
+compressed = Manipulative<filtered>.Dynamics<Compressor>(
+  threshold=-18, ratio=4, attack=5, release=50, makeup=6
+)
+wet = Manipulative<compressed>.Reverb(room=0.6, decay=1.5, damping=0.4, mix=0.25)
+
+output wet
+```
+
+**Key points:**
+
+- The high-pass filter at 80 Hz removes low-frequency rumble and handling noise.
+- The compressor evens out dynamic range with a 4:1 ratio.
+- Reverb adds space with a 25% wet mix.
+- Order matters: filter before compression before reverb is a standard vocal chain.
+
+## live-rig.mkl
+
+A complex live performance setup with multiple inputs, groups, conditional routing, beat sequencing, and multiple outputs. This example demonstrates most of Musikell's features working together.
+
+See the full source at [examples/live-rig.mkl](examples/live-rig.mkl).
+
+**Key points:**
+
+- Four input channels (vocal, guitar, drums, synth) and four output destinations (main speakers, stage monitor, engineer headphones, recording bus).
+- Groups organize processing chains (vocal_chain, guitar_chain, drum_chain, synth_chain).
+- Conditional routing dynamically selects reverb size based on signal amplitude.
+- Feedback edges on the master bus add subtle saturation.
+- A drum machine group with multiple patterns runs alongside live drum input.
+- Separate monitor and headphone mixes with different balances.
+
+## Summary
+
+These examples progress from the simplest possible program (hello-sine) through practical processing chains (vocal-chain, drum-machine) to a full live performance rig. Each example builds on concepts from the guide: creational and manipulative nodes, routing, effects, patterns, and conditional logic.
+
+## Next Steps
+
+- Try modifying the examples and listening to the results
+- Combine techniques from different examples into your own programs
+- Refer back to individual guide sections for parameter details

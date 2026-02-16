@@ -1,0 +1,53 @@
+---
+title: "Musikell.Backend.Resolver"
+description: "Resolve Nix flake references to shared library paths for backends"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-backend-resolver"
+tags: ["reference", "backend"]
+source: "src/Musikell/Backend/Resolver.hs"
+---
+
+**Module:** `Musikell.Backend.Resolver`
+**Source:** `src/Musikell/Backend/Resolver.hs`
+**Dependencies:** `Data.Text`, `System.Directory`, `System.FilePath`, `System.Process`
+
+## Purpose
+
+Resolves a Nix flake reference to a shared library path (`.dylib` or `.so`). Runs `nix build <flake-ref> --print-out-paths --no-link` and searches the resulting store path for a shared library file.
+
+## Types
+
+### `ResolveError`
+
+```haskell
+data ResolveError
+  = NixBuildFailed String
+  | NoLibraryFound FilePath
+  deriving (Eq, Show)
+```
+
+| Constructor      | Fields     | Description                           |
+| ---------------- | ---------- | ------------------------------------- |
+| `NixBuildFailed` | `String`   | `nix build` returned empty or failed  |
+| `NoLibraryFound` | `FilePath` | No `.dylib`/`.so` found in store path |
+
+## Functions
+
+### `resolveBackend`
+
+```haskell
+resolveBackend :: Text -> IO (Either ResolveError FilePath)
+```
+
+Build a flake ref and return the path to the shared library.
+
+1. Runs `nix build <ref> --print-out-paths --no-link`
+2. Searches `<store-path>/lib/` for `.dylib` or `.so` files
+3. Returns the first match or `ResolveError`
+
+## Usage Notes
+
+- Used by `Musikell.CLI.Dispatch.resolveBackendOption` when a backend is specified as a flake reference.
+- Requires `nix` to be on PATH.
+- Only searches the `lib/` subdirectory of the Nix store output.

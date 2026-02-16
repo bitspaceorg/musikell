@@ -1,0 +1,93 @@
+---
+title: "Musikell.IO.StreamInput"
+description: "Raw PCM input from stdin with block reading and buffer conversion"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-io-stream-input"
+tags: ["reference", "io"]
+source: "src/Musikell/IO/StreamInput.hs"
+---
+
+Raw PCM input from stdin. Format: 32-bit IEEE 754 float, little-endian, mono. This matches the output of most Unix audio tools (`sox`, `ffmpeg -f f32le`).
+
+## Dependencies
+
+| Package      | Import                                                              |
+| ------------ | ------------------------------------------------------------------- |
+| `base`       | `Control.Monad.IO.Class (liftIO)`                                   |
+| `bytestring` | `Data.ByteString`, `Data.ByteString.Internal`                       |
+| `conduit`    | `Data.Conduit (ConduitT, yield)`                                    |
+| `base`       | `Foreign.ForeignPtr`, `Foreign.Ptr`, `Foreign.Marshal.Utils`        |
+| `base`       | `System.IO (stdin, hIsEOF)`                                         |
+| musikell     | `Musikell.Core.Types (BlockSize)`                                   |
+| musikell     | `Musikell.Memory.Buffer (Buffer, allocateBuffer, unsafeWithBuffer)` |
+
+## Constants
+
+| Name          | Type  | Value | Description                     |
+| ------------- | ----- | ----- | ------------------------------- |
+| `sampleBytes` | `Int` | `4`   | Bytes per sample (32-bit float) |
+
+## Functions
+
+### Block reading
+
+#### readBlock
+
+```haskell
+readBlock :: BlockSize -> IO (Maybe ByteString)
+```
+
+Read one block of raw PCM from stdin. Returns `Nothing` on EOF. Reads `blockSize * sampleBytes` bytes. If stdin returns an empty `ByteString`, returns `Nothing`.
+
+#### readBlockStrict
+
+```haskell
+readBlockStrict :: BlockSize -> IO ByteString
+```
+
+Strict version of `readBlock`. Always returns a `ByteString` of exactly `blockSize * sampleBytes` bytes. On EOF or short read, the result is zero-padded to the full block size.
+
+### Conduit source
+
+#### sourceStdin
+
+```haskell
+sourceStdin :: BlockSize -> ConduitT () ByteString IO ()
+```
+
+Conduit source that reads fixed-size blocks from stdin. Yields one `ByteString` per block. Terminates when `readBlock` returns `Nothing` (EOF).
+
+### Conversion
+
+#### bytesToBuffer
+
+```haskell
+bytesToBuffer :: ByteString -> IO Buffer
+```
+
+Allocate a new `Buffer` from raw PCM bytes. Reinterprets the memory as IEEE 754 float32 (native byte order -- correct on little-endian platforms: x86, ARM). The buffer size is `BS.length bs `div` sampleBytes`.
+
+For hot-path use, prefer `bytesIntoBuffer` to avoid allocation.
+
+#### bytesIntoBuffer
+
+```haskell
+bytesIntoBuffer :: ByteString -> Buffer -> IO ()
+```
+
+Zero-allocation write of raw PCM bytes into an existing pre-allocated buffer. Uses `memcpy` from the `ByteString`'s underlying `ForeignPtr` directly into the buffer's mutable vector. No per-sample loop, no allocation. This is the hot-path function used by `processConduit`.
+
+#### blockToBuffer
+
+```haskell
+blockToBuffer :: ByteString -> IO Buffer
+```
+
+Alias for `bytesToBuffer`.
+
+## Usage Notes
+
+- `bytesIntoBuffer` is the hot-path function. It performs a single `memcpy` with no allocation. Use it when you have a pre-allocated buffer (from the pool).
+- `bytesToBuffer` allocates a new buffer on every call. Use it only for initialisation or testing.
+- All functions assume little-endian byte order. The PCM format is 32-bit IEEE 754 float, which matches `sox -t f32` and `ffmpeg -f f32le`.

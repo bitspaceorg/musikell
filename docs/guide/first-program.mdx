@@ -1,0 +1,96 @@
+---
+title: "First Program"
+description: "Write and run your first Musikell program: a 440 Hz sine wave"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "guide/first-program"
+tags: ["guide", "tutorial", "hello-world"]
+---
+
+# First Program
+
+## What You'll Learn
+
+- How to write a minimal `.mkl` program
+- What each line means
+- How to run the program and hear the output
+
+## Prerequisites
+
+- Musikell built and available (see [Installation](installation.mdx))
+- An audio playback tool (`aplay`, `sox`, `ffplay`, or similar)
+
+## Hello Sine
+
+Create a file called `hello-sine.mkl`:
+
+```mkl
+-- hello-sine.mkl
+-- Generate a 440 Hz sine wave
+
+input stdin
+osc = Creational.Oscillator<Sine>(freq=440)
+output osc
+```
+
+### Line by Line
+
+**`-- hello-sine.mkl`** -- Lines starting with `--` are comments. They are ignored by the parser.
+
+**`input stdin`** -- Declares an input node named `stdin`. Every Musikell program needs at least one input declaration. This binds the program's standard input stream to a node you can reference later (though in this example we do not use it).
+
+**`osc = Creational.Oscillator<Sine>(freq=440)`** -- This is a binding. It creates a node named `osc` using:
+
+- `Creational` -- the node type. Creational nodes generate audio from nothing (no input signal required).
+- `Oscillator` -- the kernel. This is the DSP function that runs every block.
+- `<Sine>` -- the oscillator variant. Other options include `Saw`, `Square`, and `Triangle`.
+- `(freq=440)` -- the parameter list. Here we set the frequency to 440 Hz (concert A).
+
+**`output osc`** -- Declares an output node. The signal from `osc` is written to stdout as raw PCM every block.
+
+## Running It
+
+### Linux (aplay)
+
+```bash
+musikell run hello-sine.mkl | aplay -f FLOAT_LE -r 44100 -c 1
+```
+
+### Linux / macOS (sox)
+
+```bash
+musikell run hello-sine.mkl | sox -t raw -r 44100 -e floating-point -b 32 -c 1 - -d
+```
+
+### macOS (ffplay)
+
+```bash
+musikell run hello-sine.mkl | ffplay -f f32le -ar 44100 -ac 1 -nodisp -
+```
+
+You should hear a continuous 440 Hz tone -- concert pitch A4.
+
+## Experimenting
+
+Try changing the frequency:
+
+```mkl
+osc = Creational.Oscillator<Sine>(freq=261.63)
+```
+
+This produces middle C (C4). Or switch to a different waveform:
+
+```mkl
+osc = Creational.Oscillator<Saw>(freq=440)
+```
+
+A sawtooth wave at 440 Hz has a brighter, buzzier timbre than a sine wave because it contains all harmonics.
+
+## Summary
+
+You wrote a three-line Musikell program that generates a sine wave oscillator and routes it to stdout. The program declares an input, creates a creational node with a kernel and parameters, and declares an output.
+
+## Next Steps
+
+- [Concepts](concepts.mdx) -- understand nodes, edges, blocks, and the execution pipeline
+- [Nodes](nodes.mdx) -- learn about all three node types

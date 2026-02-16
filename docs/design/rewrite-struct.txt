@@ -1,0 +1,10 @@
+1. CLI
+	a.	`musikell config set \
+	    	--sample-rate=44000 \
+	    	--buffer-size=256`
+	    Will set the config file to `~/.musikell.config`
+	b. 	`musikell config get -> Will get the config file from `~/.musikell.config`
+	c.  `musikell run beat.mkl` -> Will run the engine with the mkl file passed to it with the config set as default config unless overwritten like the below example
+		`musikell run beat.mkl --sample-rate=48000`
+	d. 	- Need command to overwrite the default backend (example -> from default to let's say to webaudio to work with websites)
+		- Have to think about how are we going to fetch differnt backend - should define a clear entry point for backend even with the community made ones (git is probably gonna be where we are going to fetch but still need to think about the entry point)

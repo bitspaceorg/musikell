@@ -1,0 +1,97 @@
+---
+title: "Envelope Kernel"
+description: "ADSR envelope generator for amplitude shaping"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-envelope"
+tags: ["reference", "runtime", "kernel", "envelope", "adsr"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Envelope.hs"
+---
+
+## Purpose
+
+Classic Attack-Decay-Sustain-Release (ADSR) envelope generator. The envelope multiplies an input signal for amplitude modulation. Gate on/off is controlled by the initial `gateOn` parameter.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Envelope`
+
+---
+
+## Types
+
+### `EnvelopeStage`
+
+```haskell
+data EnvelopeStage
+  = StageIdle      -- Before gate on
+  | StageAttack    -- Rising from 0 to 1
+  | StageDecay     -- Falling from 1 to sustain level
+  | StageSustain   -- Held at sustain level
+  | StageRelease   -- Falling from sustain to 0
+  deriving (Eq, Show)
+```
+
+### `ADSRState` (internal)
+
+```haskell
+data ADSRState = ADSRState
+  { adsrStage :: !EnvelopeStage
+  , adsrLevel :: {-# UNPACK #-} !Float
+  }
+```
+
+| Field       | Type                    | Description                        |
+| ----------- | ----------------------- | ---------------------------------- |
+| `adsrStage` | `!EnvelopeStage`        | Current stage of the envelope      |
+| `adsrLevel` | `{-# UNPACK #-} !Float` | Current envelope level (0.0 - 1.0) |
+
+---
+
+## `mkADSR`
+
+**KernelId:** `"envelope.adsr"`
+**Inputs:** 1 (audio signal) | **Outputs:** 1 (enveloped signal) | **Stateful:** Yes (ADSRState IORef)
+
+```haskell
+mkADSR :: Double -> Double -> Double -> Double -> Bool -> SampleRate -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter | Type         | Description                                                                 |
+| --------- | ------------ | --------------------------------------------------------------------------- |
+| `attack`  | `Double`     | Attack time in seconds (0 to 1 rise)                                        |
+| `decay`   | `Double`     | Decay time in seconds (1 to sustain fall)                                   |
+| `sustain` | `Double`     | Sustain level (0.0 - 1.0)                                                   |
+| `release` | `Double`     | Release time in seconds (sustain to 0 fall)                                 |
+| `gateOn`  | `Bool`       | Whether the note starts immediately (`True` = begin attack, `False` = idle) |
+| `sr`      | `SampleRate` | Sample rate                                                                 |
+
+### Behavior
+
+Per-sample envelope computation applied as amplitude modulation:
+
+| Stage       | Transition                                           | Computation                                                 |
+| ----------- | ---------------------------------------------------- | ----------------------------------------------------------- |
+| **Idle**    | Stays idle until gate triggers                       | `level = 0.0`                                               |
+| **Attack**  | Transitions to Decay when level >= 1.0               | `level += attackRate` (linear ramp)                         |
+| **Decay**   | Transitions to Sustain when level <= sustain + 0.001 | `level -= decayRate * (level - sustain)` (exponential fall) |
+| **Sustain** | Held until gate off                                  | `level = sustain`                                           |
+| **Release** | Transitions to Idle when level < 0.001               | `level -= releaseRate * level` (exponential fall)           |
+
+Output: `output[i] = input[i] * level`
+
+Attack uses a linear rate: `attackRate = 1 / (attack * sampleRate)`. Decay and release use exponential curves via multiplicative rates. All intermediate values pass through `flushDenormals`.
+
+If `attack`, `decay`, or `release` are 0, the corresponding rate defaults to 1.0 for an instantaneous transition.
+
+## Example
+
+```mkl
+oscillator.sine(440) -> envelope.adsr(0.01, 0.1, 0.7, 0.3) -> output
+```
+
+## Usage Notes
+
+- Stateful kernel: must be created via `mkADSR` in IO. Not included in `builtinRegistry`.
+- The `gateOn` parameter sets the initial state. There is currently no mechanism to trigger gate on/off during playback from within the kernel itself.
+- Decay and release use exponential curves (multiply by rate each sample), which gives a natural-sounding decay but means the time parameters are approximate.

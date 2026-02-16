@@ -1,0 +1,146 @@
+---
+title: "Musikell.Core.Types"
+description: "Foundation types for the Musikell audio graph"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-core-types"
+tags: ["reference", "core"]
+source: "src/Musikell/Core/Types.hs"
+---
+
+Foundation types shared across every layer of the Musikell runtime. This module defines numeric identifiers, size aliases, and all error ADTs.
+
+## Language extensions
+
+| Extension                    | Reason                                               |
+| ---------------------------- | ---------------------------------------------------- |
+| `GeneralizedNewtypeDeriving` | Derive `Num`, `Enum` for newtype wrappers over `Int` |
+
+## Dependencies
+
+| Package | Import             |
+| ------- | ------------------ |
+| `text`  | `Data.Text (Text)` |
+
+## Type aliases
+
+| Alias          | Underlying | Description                                     |
+| -------------- | ---------- | ----------------------------------------------- |
+| `BlockSize`    | `Int`      | Number of samples per block                     |
+| `SampleRate`   | `Int`      | Samples per second                              |
+| `BlockIndex`   | `Int`      | Block counter for scheduling                    |
+| `ChannelCount` | `Int`      | Number of audio channels (1 = mono, 2 = stereo) |
+
+## Newtypes
+
+### NodeId
+
+Unique identifier for a node in the graph.
+
+```haskell
+newtype NodeId = NodeId { getNodeId :: Int }
+  deriving (Eq, Ord, Show, Num, Enum)
+```
+
+| Field       | Type  | Description           |
+| ----------- | ----- | --------------------- |
+| `getNodeId` | `Int` | Unwrapped raw integer |
+
+### PortId
+
+Unique identifier for a port on a node.
+
+```haskell
+newtype PortId = PortId { getPortId :: Int }
+  deriving (Eq, Ord, Show, Num, Enum)
+```
+
+| Field       | Type  | Description           |
+| ----------- | ----- | --------------------- |
+| `getPortId` | `Int` | Unwrapped raw integer |
+
+### KernelId
+
+Identifier for a kernel implementation.
+
+```haskell
+newtype KernelId = KernelId { getKernelId :: Text }
+  deriving (Eq, Ord, Show)
+```
+
+| Field         | Type   | Description           |
+| ------------- | ------ | --------------------- |
+| `getKernelId` | `Text` | Kernel name as `Text` |
+
+## Error types
+
+### GraphError
+
+Errors that can occur during graph validation.
+
+```haskell
+data GraphError
+  = CycleDetected [NodeId]
+  | DanglingEdge NodeId PortId
+  | DuplicateNodeId NodeId
+  | InvalidPort NodeId PortId
+  deriving (Eq, Show)
+```
+
+| Constructor       | Fields           | Description                                        |
+| ----------------- | ---------------- | -------------------------------------------------- |
+| `CycleDetected`   | `[NodeId]`       | Forward edges form a cycle (nodes involved)        |
+| `DanglingEdge`    | `NodeId, PortId` | Edge references a node or port that does not exist |
+| `DuplicateNodeId` | `NodeId`         | A node with this ID is already in the graph        |
+| `InvalidPort`     | `NodeId, PortId` | The port does not exist on the specified node      |
+
+### PlanError
+
+Errors that can occur during execution plan construction.
+
+```haskell
+data PlanError
+  = GraphValidationFailed GraphError
+  | EmptyGraph
+  deriving (Eq, Show)
+```
+
+| Constructor             | Fields       | Description                                        |
+| ----------------------- | ------------ | -------------------------------------------------- |
+| `GraphValidationFailed` | `GraphError` | Graph validation failed before plan could be built |
+| `EmptyGraph`            | --           | Graph contains no nodes                            |
+
+### SchedulerError
+
+Errors that can occur during scheduling.
+
+```haskell
+data SchedulerError
+  = MissingBuffer NodeId PortId
+  | KernelExecutionFailed KernelId Text
+  | InvalidBlockSize BlockSize
+  deriving (Eq, Show)
+```
+
+| Constructor             | Fields           | Description                                          |
+| ----------------------- | ---------------- | ---------------------------------------------------- |
+| `MissingBuffer`         | `NodeId, PortId` | Buffer not found in the pool for the given node/port |
+| `KernelExecutionFailed` | `KernelId, Text` | Kernel lookup or execution failed, with reason       |
+| `InvalidBlockSize`      | `BlockSize`      | Block size is invalid (zero or negative)             |
+
+## Functions
+
+### Defaults
+
+| Function              | Signature      | Value   | Description                    |
+| --------------------- | -------------- | ------- | ------------------------------ |
+| `defaultBlockSize`    | `BlockSize`    | `256`   | Default block size: 256 frames |
+| `defaultSampleRate`   | `SampleRate`   | `44100` | Default sample rate: 44100 Hz  |
+| `defaultChannelCount` | `ChannelCount` | `1`     | Default channel count: mono    |
+
+### Accessors
+
+| Function   | Signature       | Description                                              |
+| ---------- | --------------- | -------------------------------------------------------- |
+| `unNodeId` | `NodeId -> Int` | Unwrap `NodeId` to raw `Int` (equivalent to `getNodeId`) |
+| `unPortId` | `PortId -> Int` | Unwrap `PortId` to raw `Int` (equivalent to `getPortId`) |

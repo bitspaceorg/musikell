@@ -1,0 +1,487 @@
+---
+title: "Grammar Specification"
+description: "Complete BNF grammar for the Musikell DSL (.mkl files)"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-grammar"
+tags: ["reference", "grammar", "language"]
+source: "src/Musikell/Language/Grammar.hs"
+---
+
+Complete BNF grammar for the Musikell DSL. The grammar is implemented as a hand-rolled recursive-descent parser in `Musikell.Language.Parser` with no external parsing dependencies.
+
+## Complete BNF
+
+```
+program       ::= (import | statement)*
+
+import        ::= 'use' string
+                 | 'use' string '(' identifier (',' identifier)* ')'
+                 | 'use' string 'as' identifier
+
+statement     ::= comment | binding | io_stmt | group_def | param_set
+
+comment       ::= '--' rest_of_line
+
+binding       ::= bind_prefix? identifier '=' expr
+bind_prefix   ::= '!' | '#'
+
+io_stmt       ::= qual_name '<<<' identifier?
+                 | qual_name '>>>' identifier?
+
+group_def     ::= 'group' identifier '{' statement* '}'
+
+param_set     ::= identifier '=>' param_pair (',' param_pair)*
+param_pair    ::= identifier '=' expr
+
+expr          ::= expr_prec0
+expr_prec0    ::= expr_prec1 (('+' | '-') expr_prec1)*
+expr_prec1    ::= atom_expr (('*' | '/') atom_expr)*
+
+atom_expr     ::= literal
+                 | '~' qual_name
+                 | qual_name
+                 | identifier '(' expr_list ')'
+                 | node_expr
+                 | '(' expr ')'
+                 | '-' atom_expr
+
+post_atom     ::= ('.' identifier)*
+
+node_expr     ::= node_type input_list? overrides? '.' kernel_name
+                   type_param? named_arg_list method_chain?
+node_type     ::= 'Creational' | 'Manipulative' | 'Conditional'
+
+input_list    ::= '<' input_ref (',' input_ref)* '>'
+input_ref     ::= '~'? qual_name
+
+overrides     ::= '(' expr_list ')'
+expr_list     ::= (expr (',' expr)*)?
+
+kernel_name   ::= identifier ('.' identifier)*
+named_arg_list ::= '(' (named_arg (',' named_arg)*)? ')'
+named_arg     ::= identifier '=' expr
+                 | 'pattern' '=' pattern
+
+method_chain  ::= method_call*
+method_call   ::= '.' identifier type_param? named_arg_list
+type_param    ::= '<' identifier '>'
+
+qual_name     ::= identifier ('.' identifier)*
+
+literal       ::= number | string | bool | pattern
+number        ::= digit+ ('.' digit+)?
+string        ::= '"' [^"]* '"'
+bool          ::= 'true' | 'false'
+pattern       ::= [xXoO_]+
+identifier    ::= [a-zA-Z_][a-zA-Z0-9_]*
+```
+
+## Production Rules
+
+### program
+
+```
+program ::= (import | statement)*
+```
+
+A program is a sequence of imports and statements. Imports can be interspersed with comments but conventionally appear at the top of the file.
+
+```mkl
+use "./presets/house-kit.mkl" (HouseKick, HouseHat)
+use "./vendor/premium-verbs.mkl" as PremVerb
+
+sub_bass = Creational(0.7).Oscillator(freq=55.0, waveform=sine)
+```
+
+### import
+
+```
+import ::= 'use' string
+          | 'use' string '(' identifier (',' identifier)* ')'
+          | 'use' string 'as' identifier
+```
+
+Three import forms:
+
+| Form       | Syntax                  | Description                                  |
+| ---------- | ----------------------- | -------------------------------------------- |
+| Bare       | `use "file.mkl"`        | Import all exported bindings                 |
+| Selective  | `use "file.mkl" (A, B)` | Import only named bindings                   |
+| Namespaced | `use "file.mkl" as NS`  | Import all bindings under a namespace prefix |
+
+```mkl
+use "./presets/house-kit.mkl"
+use "./presets/house-kit.mkl" (HouseKick, HouseHat)
+use "./vendor/premium-verbs.mkl" as PremVerb
+```
+
+### comment
+
+```
+comment ::= '--' rest_of_line
+```
+
+Line comments starting with `--`. Everything after `--` to end of line is ignored.
+
+```mkl
+-- This is a comment
+sub_bass = Creational(0.7).Oscillator(freq=55.0) -- inline comment
+```
+
+### binding
+
+```
+binding     ::= bind_prefix? identifier '=' expr
+bind_prefix ::= '!' | '#'
+```
+
+Bind an expression to a name. Optional prefix modifiers:
+
+| Prefix | Name   | Description                                       |
+| ------ | ------ | ------------------------------------------------- |
+| (none) | normal | Standard binding                                  |
+| `!`    | bypass | Node is bypassed (passes input through unchanged) |
+| `#`    | mute   | Node is muted (outputs silence)                   |
+
+```mkl
+sub_bass = Creational(0.7).Oscillator(freq=55.0, waveform=sine)
+!click = Creational(0.1).Oscillator(freq=1000.0, waveform=square)
+#debug = Manipulative<input>().Gain(level=1.0)
+```
+
+### io_stmt
+
+```
+io_stmt ::= qual_name '<<<' identifier?
+           | qual_name '>>>' identifier?
+```
+
+Stream input (`<<<`) and output (`>>>`) statements. The optional identifier specifies the channel name.
+
+| Operator | Direction | Description                             |
+| -------- | --------- | --------------------------------------- |
+| `<<<`    | input     | Read from named input channel into node |
+| `>>>`    | output    | Write from node to named output channel |
+
+```mkl
+vocal_in <<< vocal
+master.lim >>> main_speakers
+```
+
+### group_def
+
+```
+group_def ::= 'group' identifier '{' statement* '}'
+```
+
+Group definitions create a named scope containing nested statements. Bindings inside a group are accessed via dot notation (`group.member`).
+
+```mkl
+group generators {
+    sub_bass = Creational(0.7).Oscillator(freq=55.0, waveform=sine)
+    #click = Creational(0.1).Oscillator(freq=1000.0, waveform=square)
+}
+```
+
+### param_set
+
+```
+param_set  ::= identifier '=>' param_pair (',' param_pair)*
+param_pair ::= identifier '=' expr
+```
+
+Parameter sets define reusable named presets using the `=>` operator. Referenced by name elsewhere in the graph.
+
+```mkl
+CLOCK => bpm = 128, division = 16
+VENUE => room_size = 0.85, decay = 2.4, damping = 0.6
+```
+
+### expr
+
+```
+expr       ::= expr_prec0
+expr_prec0 ::= expr_prec1 (('+' | '-') expr_prec1)*
+expr_prec1 ::= atom_expr (('*' | '/') atom_expr)*
+```
+
+Expressions use precedence climbing. Two precedence levels:
+
+| Precedence  | Operators | Associativity |
+| ----------- | --------- | ------------- |
+| 0 (lowest)  | `+`, `-`  | left          |
+| 1 (highest) | `*`, `/`  | left          |
+
+```mkl
+freq = 440.0 * 2.0
+level = base_level + 0.1 - offset * 0.5
+```
+
+### atom_expr
+
+```
+atom_expr ::= literal
+             | '~' qual_name
+             | qual_name
+             | identifier '(' expr_list ')'
+             | node_expr
+             | '(' expr ')'
+             | '-' atom_expr
+```
+
+Atomic expressions (highest precedence):
+
+| Form                   | Description                      | Example                                |
+| ---------------------- | -------------------------------- | -------------------------------------- |
+| literal                | Number, string, bool, or pattern | `440.0`, `"hello"`, `true`, `x__x__x_` |
+| `~` qual_name          | Feedback reference               | `~delay`                               |
+| qual_name              | Variable reference               | `generators.sub_bass`                  |
+| identifier `(` ... `)` | Built-in function call           | `clamp(val, 0.0, 1.0)`                 |
+| node_expr              | Node expression                  | `Creational().Oscillator(freq=440.0)`  |
+| `(` expr `)`           | Parenthesised expression         | `(a + b) * c`                          |
+| `-` atom_expr          | Unary negation                   | `-1.0`                                 |
+
+Built-in functions: `min`, `max`, `clamp`.
+
+### node_expr
+
+```
+node_expr ::= node_type input_list? overrides? '.' kernel_name
+              type_param? named_arg_list method_chain?
+```
+
+Node expressions are the core of the DSL. They create audio processing nodes.
+
+#### Anatomy
+
+```
+Manipulative <input, ~feedback> (AMPLITUDE=0.8) .Compressor (threshold=0.4, ratio=3.0)
+^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+node_type    input_list           overrides       kernel      named_args
+
+.limiter <PEAK> (ceiling=0.95)
+^^^^^^^  ^^^^^^  ^^^^^^^^^^^^^
+method   type    method_args
+         param
+```
+
+### node_type
+
+```
+node_type ::= 'Creational' | 'Manipulative' | 'Conditional'
+```
+
+| Type           | Description                                      | Inputs                 |
+| -------------- | ------------------------------------------------ | ---------------------- |
+| `Creational`   | Generates audio (oscillators, noise, sequencers) | None or overrides only |
+| `Manipulative` | Transforms audio (filters, gain, delay, reverb)  | One or more inputs     |
+| `Conditional`  | Routes audio based on conditions (switch/case)   | One input              |
+
+### input_list
+
+```
+input_list ::= '<' input_ref (',' input_ref)* '>'
+input_ref  ::= '~'? qual_name
+```
+
+Input references in angle brackets. The `~` prefix marks a feedback reference (creates a feedback edge in the graph, allowing cycles).
+
+```mkl
+Manipulative<vocal_in>().Gain(level=0.8)
+Manipulative<reverb, ~delay>().Delay(samples=4410)
+```
+
+### overrides
+
+```
+overrides ::= '(' expr_list ')'
+```
+
+Override expressions in parentheses between the input list and the kernel. These set per-instance parameter overrides.
+
+```mkl
+Creational(0.7).Oscillator(freq=55.0, waveform=sine)
+Manipulative<vocal_in>(AMPLITUDE=0.8).Compressor(threshold=0.4)
+```
+
+### kernel_name
+
+```
+kernel_name ::= identifier ('.' identifier)*
+```
+
+Kernel names can be simple or dot-qualified (for namespaced plugin kernels).
+
+```mkl
+.Oscillator(freq=440.0)
+.PremVerb.Hall(room_size=0.85)
+```
+
+### named_arg_list and named_arg
+
+```
+named_arg_list ::= '(' (named_arg (',' named_arg)*)? ')'
+named_arg      ::= identifier '=' expr
+                  | 'pattern' '=' pattern
+```
+
+All kernel parameters are named. The special `pattern=` named argument triggers beat pattern parsing for the value.
+
+```mkl
+.Oscillator(freq=440.0, waveform=sine)
+.Beat(pattern=x___x___x___x___)
+```
+
+### method_chain
+
+```
+method_chain ::= method_call*
+method_call  ::= '.' identifier type_param? named_arg_list
+type_param   ::= '<' identifier '>'
+```
+
+Methods can be chained after the kernel. Optional type parameters in angle brackets.
+
+```mkl
+Conditional<input>().switch<AMPLITUDE>(default_node)
+    .case(0.0, 0.05, low_node)
+    .case(0.05, MAX, high_node)
+```
+
+### literal
+
+```
+literal ::= number | string | bool | pattern
+number  ::= digit+ ('.' digit+)?
+string  ::= '"' [^"]* '"'
+bool    ::= 'true' | 'false'
+pattern ::= [xXoO_]+
+```
+
+| Type    | Format             | Examples               |
+| ------- | ------------------ | ---------------------- |
+| number  | Integer or decimal | `440`, `0.5`, `3.14`   |
+| string  | Double-quoted      | `"./presets/kit.mkl"`  |
+| bool    | Keywords           | `true`, `false`        |
+| pattern | Beat pattern chars | `x___x___`, `xXoO_xXo` |
+
+Pattern characters:
+
+| Char     | Meaning        |
+| -------- | -------------- |
+| `x`, `X` | Hit / accent   |
+| `o`, `O` | Soft hit       |
+| `_`      | Rest / silence |
+
+### qual_name
+
+```
+qual_name ::= identifier ('.' identifier)*
+```
+
+Dot-qualified names for accessing group members, namespaced imports, and channel selectors.
+
+```mkl
+generators.sub_bass
+PremVerb.Hall
+master.L
+```
+
+### identifier
+
+```
+identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
+```
+
+Identifiers start with a letter or underscore, followed by letters, digits, or underscores.
+
+## Keywords
+
+| Keyword        | Context           |
+| -------------- | ----------------- |
+| `use`          | Import statement  |
+| `as`           | Namespaced import |
+| `group`        | Group definition  |
+| `true`         | Boolean literal   |
+| `false`        | Boolean literal   |
+| `Creational`   | Node type         |
+| `Manipulative` | Node type         |
+| `Conditional`  | Node type         |
+
+## Operator Precedence
+
+| Level       | Operators | Associativity | Description              |
+| ----------- | --------- | ------------- | ------------------------ |
+| 1 (highest) | `*`, `/`  | left          | Multiplication, division |
+| 0 (lowest)  | `+`, `-`  | left          | Addition, subtraction    |
+| (prefix)    | `-`       | right         | Unary negation           |
+
+Standard arithmetic precedence: `*` and `/` bind tighter than `+` and `-`.
+
+```mkl
+a + b * c       -- parsed as: a + (b * c)
+(a + b) * c     -- parentheses override precedence
+-a * b          -- parsed as: (-a) * b
+```
+
+## Disambiguation Rules
+
+| Ambiguity                                    | Resolution                                                              |
+| -------------------------------------------- | ----------------------------------------------------------------------- |
+| `--` (comment) vs `-` (negation/subtraction) | Peek two characters: `--` = comment, `-` followed by non-`-` = operator |
+| `<` after node type keyword                  | Input list (no `<` operator exists)                                     |
+| `(` after `<inputs>`                         | Overrides                                                               |
+| `(` after `.Kernel`                          | Named arguments                                                         |
+| `pattern=` in named args                     | Triggers beat pattern parsing for the value                             |
+
+## Node Expression Anatomy
+
+Full annotated breakdown:
+
+```mkl
+Manipulative <input> (override) .Kernel (args) .method <T> (args)
+```
+
+| Part           | Grammar rule     | Required         | Description                                        |
+| -------------- | ---------------- | ---------------- | -------------------------------------------------- |
+| `Manipulative` | `node_type`      | yes              | One of `Creational`, `Manipulative`, `Conditional` |
+| `<input>`      | `input_list`     | no               | Input references, `~` for feedback                 |
+| `(override)`   | `overrides`      | no               | Per-instance parameter overrides                   |
+| `.Kernel`      | `kernel_name`    | yes              | Kernel identifier (possibly qualified)             |
+| `<T>`          | `type_param`     | no               | Type parameter for the kernel                      |
+| `(args)`       | `named_arg_list` | yes              | Named kernel arguments                             |
+| `.method`      | `method_call`    | no               | Chained method calls (repeatable)                  |
+| `<T>`          | `type_param`     | no               | Type parameter for the method                      |
+| `(args)`       | `named_arg_list` | yes (per method) | Named method arguments                             |
+
+## Example Program
+
+```mkl
+CLOCK => bpm = 128, division = 16
+VENUE => room_size = 0.85, decay = 2.4, damping = 0.6
+
+use "./presets/house-kit.mkl" (HouseKick, HouseHat)
+use "./vendor/premium-verbs.mkl" as PremVerb
+
+vocal_in <<< vocal
+
+group generators {
+    sub_bass = Creational(0.7).Oscillator(freq=55.0, waveform=sine)
+    #click = Creational(0.1).Oscillator(freq=1000.0, waveform=square)
+}
+
+comp = Manipulative<vocal_in>(AMPLITUDE=0.8).Compressor(
+    threshold=0.4, ratio=3.0
+)
+
+delay = Manipulative<reverb, ~delay>().Delay(samples=4410)
+
+ctrl = Conditional<input>().switch<AMPLITUDE>(default_node)
+    .case(0.0, 0.05, low_node)
+    .case(0.05, MAX, high_node)
+
+seq = Manipulative<kick>().Beat(pattern=x___x___x___x___)
+
+master.lim >>> main_speakers
+```

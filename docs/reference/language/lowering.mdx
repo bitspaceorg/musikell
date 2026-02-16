@@ -1,0 +1,227 @@
+---
+title: "Musikell.Language.Lowering"
+description: "AST-to-graph lowering pass with import, group, and feedback support"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-language-lowering"
+tags: ["reference", "language"]
+source: "src/Musikell/Language/Lowering.hs"
+---
+
+Lowers a parsed Musikell AST (`Program`) into a runnable audio graph with an execution plan and kernel registry. Handles imports, groups, parameter sets, feedback edges, bypass/mute prefixes, arithmetic evaluation, and method chain application.
+
+## Purpose
+
+The lowering pass is the bridge between the language layer and the core runtime. It walks every statement in program order, allocates graph nodes with fresh IDs, wires edges between them, resolves kernel implementations from the registry or built-in table, and produces a `LoweringResult` containing everything the scheduler needs to execute audio.
+
+## Language extensions
+
+| Extension           | Reason                                            |
+| ------------------- | ------------------------------------------------- |
+| `OverloadedStrings` | `Text` literals for `KernelId` and error messages |
+
+## Dependencies
+
+| Package      | Import                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------------- |
+| `containers` | `Data.Map.Strict`, `Data.Set`                                                                     |
+| `text`       | `Data.Text`                                                                                       |
+| `directory`  | `System.Directory (doesFileExist)`                                                                |
+| musikell     | `Musikell.Language.AST`, `Musikell.Language.Parser (parseProgram)`                                |
+| musikell     | `Musikell.Core.Types`, `Musikell.Core.Node`, `Musikell.Core.Graph`, `Musikell.Core.ExecutionPlan` |
+| musikell     | `Musikell.Runtime.Kernel`, `Musikell.Runtime.Kernel.Builtin`                                      |
+
+## Types
+
+### LoweringError
+
+Errors that can occur during the lowering pass.
+
+```haskell
+data LoweringError
+  = UndefinedVariable Text
+  | TypeMismatch Text Text
+  | InvalidNodeConfiguration Text
+  | GraphConstructionFailed Text
+  | ExprEvalError Text
+  | ImportError Text
+  deriving (Eq, Show)
+```
+
+| Constructor                | Fields       | Description                                                           |
+| -------------------------- | ------------ | --------------------------------------------------------------------- |
+| `UndefinedVariable`        | `Text`       | Referenced variable name not found in the environment                 |
+| `TypeMismatch`             | `Text, Text` | Expected type vs actual type (reserved for future use)                |
+| `InvalidNodeConfiguration` | `Text`       | Node creation failed (unsupported expression form, missing I/O, etc.) |
+| `GraphConstructionFailed`  | `Text`       | Underlying `GraphError` or `PlanError` during graph/plan construction |
+| `ExprEvalError`            | `Text`       | Arithmetic expression could not be evaluated to a constant            |
+| `ImportError`              | `Text`       | Import file not found or failed to parse                              |
+
+### LoweringResult
+
+The complete output of a successful lowering pass.
+
+```haskell
+data LoweringResult = LoweringResult
+  { lowerGraph      :: !Graph
+  , lowerPlan       :: !ExecutionPlan
+  , lowerRegistry   :: !KernelRegistry
+  , lowerInputNode  :: !NodeId
+  , lowerOutputNode :: !NodeId
+  , lowerBypassSet  :: !(Set NodeId)
+  , lowerMuteSet    :: !(Set NodeId)
+  } deriving (Show)
+```
+
+| Field             | Type             | Description                                           |
+| ----------------- | ---------------- | ----------------------------------------------------- |
+| `lowerGraph`      | `Graph`          | The constructed audio graph with all nodes and edges  |
+| `lowerPlan`       | `ExecutionPlan`  | Topologically sorted execution order                  |
+| `lowerRegistry`   | `KernelRegistry` | All kernel implementations registered during lowering |
+| `lowerInputNode`  | `NodeId`         | Node whose output buffer receives stdin data          |
+| `lowerOutputNode` | `NodeId`         | Node whose input buffer becomes stdout data           |
+| `lowerBypassSet`  | `Set NodeId`     | Nodes marked with `!` bypass prefix                   |
+| `lowerMuteSet`    | `Set NodeId`     | Nodes marked with `#` mute prefix                     |
+
+### Internal types (not exported)
+
+#### LState
+
+Mutable lowering state threaded through the pass.
+
+| Field         | Type                   | Description                                           |
+| ------------- | ---------------------- | ----------------------------------------------------- |
+| `lsNextId`    | `Int`                  | Next available node ID counter                        |
+| `lsGraph`     | `Graph`                | Graph under construction                              |
+| `lsRegistry`  | `KernelRegistry`       | Kernel registry under construction                    |
+| `lsEnv`       | `Map Text EnvEntry`    | Variable environment: name to `(NodeId, channels)`    |
+| `lsInputs`    | `[NodeId]`             | Collected input stream nodes                          |
+| `lsOutputs`   | `[NodeId]`             | Collected output stream nodes                         |
+| `lsParamSets` | `Map Text [ParamPair]` | Stored parameter sets for later evaluation            |
+| `lsGroups`    | `Map Text GroupInfo`   | Group name to member list and optional auto-mix node  |
+| `lsFeedbacks` | `[(NodeId, NodeId)]`   | Feedback edge source/destination pairs                |
+| `lsBypassSet` | `Set NodeId`           | Nodes with `!` prefix                                 |
+| `lsMuteSet`   | `Set NodeId`           | Nodes with `#` prefix                                 |
+| `lsPrefix`    | `Text`                 | Current scope prefix (e.g. `"group."` inside a group) |
+
+#### EnvEntry
+
+Environment entry mapping a variable name to its node.
+
+| Field         | Type     | Description                            |
+| ------------- | -------- | -------------------------------------- |
+| `envNodeId`   | `NodeId` | The graph node this variable refers to |
+| `envChannels` | `Int`    | Number of output channels              |
+
+#### GroupInfo
+
+Metadata for a group definition.
+
+| Field          | Type           | Description                                               |
+| -------------- | -------------- | --------------------------------------------------------- |
+| `groupMembers` | `[NodeId]`     | All member node IDs in the group                          |
+| `groupMixNode` | `Maybe NodeId` | Auto-generated mixer node (created on first use as input) |
+
+## Functions
+
+### Exported
+
+#### lowerProgram
+
+```haskell
+lowerProgram :: KernelRegistry -> Program -> IO (Either LoweringError LoweringResult)
+```
+
+Lower a parsed program into a runnable audio graph. The provided `KernelRegistry` supplies pre-registered kernels (typically the builtin registry). Returns `IO` because import processing may read files from disk.
+
+## Lowering pipeline
+
+The lowering pass proceeds in three phases:
+
+### Phase 1: Import processing
+
+Imports are processed first, in order. Each import variant (`ImportAll`, `ImportNames`, `ImportAs`) parses the referenced `.mkl` file, recursively lowers it, and merges bindings into the current state. (Note: import merging is currently stubbed -- the parse/lower infrastructure is in place but `mergeImportAll`, `mergeImportNames`, and `mergeImportAs` are no-ops.)
+
+### Phase 2: Statement processing
+
+Statements are processed sequentially in program order. Each statement type has specific handling:
+
+| Statement                   | Action                                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `CommentStmt`               | No-op                                                                                                        |
+| `ParamSet name pairs`       | Store pairs in `lsParamSets` for later expression evaluation                                                 |
+| `IOStmt StreamIn ident`     | Create an input node (kernel `"input"`, one output port), bind to `ident`, add to `lsInputs`                 |
+| `IOStmt StreamOut ident`    | Look up `ident` in env, create an output node (kernel `"output"`), wire edge from source, add to `lsOutputs` |
+| `GroupDef name stmts`       | Set scope prefix to `name.`, process inner statements, collect member nodes into `GroupInfo`, restore prefix |
+| `Binding prefix ident expr` | Dispatch on expression form (see below)                                                                      |
+
+### Binding dispatch
+
+| Expression form             | Action                                                          |
+| --------------------------- | --------------------------------------------------------------- |
+| `ExprVar qn`                | Variable alias: look up source, bind `ident` to same node       |
+| `ExprLit _`                 | Error: cannot assign a literal directly to a binding            |
+| `ExprNode ne`               | Full node creation (see below)                                  |
+| `ExprDotAccess inner field` | Channel split: `.L` extracts channel 0, `.R` extracts channel 1 |
+| Other                       | Error: unsupported expression form                              |
+
+### Node creation (`ExprNode`)
+
+1. Allocate a fresh `NodeId` via `freshId`
+2. Resolve all input references (normal and feedback), creating auto-mix nodes for groups
+3. Resolve the kernel name against the registry, falling back to `createBuiltinKernel`
+4. Evaluate named arguments and overrides against the current state (supports param set field references like `VENUE.room_size`)
+5. Create the `NodeSpec` with input/output ports and kernel ID
+6. Register the kernel in the registry
+7. Add the node to the graph
+8. Wire input edges (forward edges for normal refs, feedback edges for `~` refs)
+9. Apply method chains (`.case`, `.mute`, generic passthru)
+10. Bind the final node ID to `ident` in the environment
+11. Apply bypass/mute prefix
+
+### Expression evaluation
+
+`evalExpr` evaluates constant expressions to `Double`:
+
+| Expression                             | Evaluation                                                       |
+| -------------------------------------- | ---------------------------------------------------------------- |
+| `LitNumber n`                          | `n`                                                              |
+| `LitBool True/False`                   | `1.0 / 0.0`                                                      |
+| `ExprVar` with qualified param set ref | Look up in `lsParamSets` and evaluate recursively                |
+| `ExprBinOp`                            | Evaluate both sides, apply operator (division by zero returns 0) |
+| `ExprUnaryNeg`                         | Negate                                                           |
+| `ExprParen`                            | Unwrap and evaluate                                              |
+| `ExprCall "min"/"max"/"clamp"`         | Apply corresponding function                                     |
+| Other                                  | `ExprEvalError`                                                  |
+
+### Built-in kernel construction
+
+When a kernel name is not found in the registry, `createBuiltinKernel` matches on the lowercase name:
+
+| Kernel name  | Builder                            | Key arguments                     |
+| ------------ | ---------------------------------- | --------------------------------- |
+| `oscillator` | `mkOscillatorSine/Square/Sawtooth` | `freq`, `sample_rate`, `waveform` |
+| `gain`       | `gainKernel`                       | `level`                           |
+| `mixer`      | `mixKernel`                        | (none)                            |
+| `clip`       | `clipKernel`                       | `lo`, `hi`                        |
+| `delay`      | `mkDelay`                          | `samples`                         |
+| `passthru`   | `passthruKernel`                   | (none)                            |
+| `beat`       | `mkBeatSequencer`                  | `bpm`, `division`, `pattern`      |
+| unknown      | No-op placeholder `KernelSpec`     | (none)                            |
+
+### Phase 3: Finalisation
+
+After all statements are processed:
+
+1. Verify at least one input node and one output node exist
+2. Build the `ExecutionPlan` from the graph via `buildPlan` (topological sort)
+3. Return `LoweringResult` with the graph, plan, registry, I/O nodes, and bypass/mute sets
+
+## Usage Notes
+
+- `lowerProgram` is `IO` because imports may trigger file reads. If you know there are no imports, it still must run in `IO`.
+- The `lsPrefix` mechanism scopes variable names inside groups. A binding `x` inside `group reverbs { ... }` becomes `reverbs.x` in the environment.
+- When a group name is used as an input reference, the lowering pass auto-generates a mix node that combines all group members. This mix node is cached in `GroupInfo.groupMixNode` so it is created at most once.
+- Feedback references (`~node`) create `FeedbackEdge` entries in the graph, which the pool handles with double-buffered swap pairs.
+- Import merging (`mergeImportAll`, `mergeImportNames`, `mergeImportAs`) is stubbed -- the parse and recursive lower infrastructure works, but merged bindings are not yet propagated into the caller's environment.
+- Method chains (`.case`, `.mute`, generic) create additional passthru or gain nodes wired in series after the main node. Full conditional routing is planned for a future phase.

@@ -5,3 +5,5 @@ dist
 result
 result-1
 utils/docs/__pycache__/
+.hpc/
+*.tix

@@ -1,0 +1,87 @@
+---
+title: "Param"
+description: "RampState -- per-sample parameter smoothing via linear ramp interpolation"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-param"
+tags: ["reference", "runtime", "param"]
+source: "src/Musikell/Runtime/Param.hs"
+---
+
+## Purpose
+
+Per-sample parameter smoothing via linear ramp interpolation. When a parameter changes (e.g. gain knob moved), the ramp state interpolates linearly from the current value to the target over a configurable number of samples. This eliminates clicks and pops from discontinuous parameter jumps.
+
+**Module:** `Musikell.Runtime.Param`
+
+## Types
+
+### `RampState`
+
+Linear ramp interpolation state for one parameter.
+
+```haskell
+data RampState = RampState
+  { rsCurrent   :: {-# UNPACK #-} !Float
+  , rsTarget    :: {-# UNPACK #-} !Float
+  , rsStep      :: {-# UNPACK #-} !Float
+  , rsRemaining :: {-# UNPACK #-} !Int
+  } deriving (Eq, Show)
+```
+
+| Field         | Type                    | Description                |
+| ------------- | ----------------------- | -------------------------- |
+| `rsCurrent`   | `{-# UNPACK #-} !Float` | Current interpolated value |
+| `rsTarget`    | `{-# UNPACK #-} !Float` | Target value               |
+| `rsStep`      | `{-# UNPACK #-} !Float` | Per-sample increment       |
+| `rsRemaining` | `{-# UNPACK #-} !Int`   | Samples left in ramp       |
+
+All fields use `UNPACK` pragmas for unboxed storage, avoiding pointer indirection.
+
+## Functions
+
+### `initRamp`
+
+```haskell
+initRamp :: Float -> RampState
+```
+
+Create a static (non-ramping) state at the given value. Sets `rsStep` to 0 and `rsRemaining` to 0.
+
+### `setTarget`
+
+```haskell
+setTarget :: Float -> Int -> RampState -> RampState
+```
+
+Set a new target with ramp duration in samples. If `rampLen <= 0`, the jump is instantaneous. Otherwise computes the per-sample step as `(target - rsCurrent) / rampLen`.
+
+### `advanceSample`
+
+```haskell
+advanceSample :: RampState -> (Float, RampState)
+```
+
+Advance one sample, returning the interpolated value and the new state. When `rsRemaining` reaches 0, snaps to `rsTarget`. Marked `INLINE` for tight inner loops.
+
+### `advanceBlock`
+
+```haskell
+advanceBlock :: RampState -> BlockSize -> IO (V.Vector Float, RampState)
+```
+
+Pre-compute the ramp for an entire block. Returns a storable vector of interpolated values and the final state. When not ramping, returns a constant-filled vector without per-sample iteration.
+
+### `isRamping`
+
+```haskell
+isRamping :: RampState -> Bool
+```
+
+Check if the ramp is still active (`rsRemaining > 0`).
+
+## Usage Notes
+
+- `advanceBlock` allocates a storable vector of size `blockSize`. For constant parameters (not ramping), it uses `MV.replicate` which is a single memset.
+- The ramp is purely linear. For exponential curves (e.g. volume faders), apply a curve to the target before calling `setTarget`.
+- All fields are strict and unpacked, so `RampState` is a flat 4-word struct with no heap pointers.

@@ -1,0 +1,320 @@
+---
+title: "C ABI Specification"
+description: "Stable C ABI contract v1 for Musikell external backends"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-ffi-abi"
+tags: ["reference", "ffi", "abi", "contract"]
+source: "src/Musikell/FFI/Contract.h"
+---
+
+The Musikell C ABI defines a stable contract for external backend implementations. Any language capable of C FFI can implement a Musikell backend by conforming to this specification.
+
+**ABI version: 1** (`MUSIKELL_ABI_VERSION = 1`)
+
+## Design Principles
+
+1. **Stability**: The ABI is versioned. Breaking changes require a version bump.
+2. **Simplicity**: Minimal types and functions to reduce implementation burden.
+3. **Safety**: Clear ownership rules prevent memory errors.
+4. **Performance**: Zero-copy where possible; aligned buffers for SIMD.
+
+## Header
+
+The canonical header is `Contract.h`:
+
+```c
+#ifndef MUSIKELL_ABI_H
+#define MUSIKELL_ABI_H
+
+#include <stdint.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define MUSIKELL_ABI_VERSION 1
+```
+
+## Return Codes
+
+| Code | Name               | Description       |
+| ---- | ------------------ | ----------------- |
+| `0`  | `MKL_OK`           | Success           |
+| `-1` | `MKL_ERR_INVALID`  | Invalid parameter |
+| `-2` | `MKL_ERR_OVERFLOW` | Buffer overflow   |
+| `-3` | `MKL_ERR_INTERNAL` | Internal error    |
+
+```c
+#define MKL_OK              0
+#define MKL_ERR_INVALID    -1
+#define MKL_ERR_OVERFLOW   -2
+#define MKL_ERR_INTERNAL   -3
+```
+
+## Types
+
+### MklBuffer
+
+```c
+typedef struct {
+    float*   data;       /* Pointer to sample data (not owned) */
+    uint32_t size;       /* Number of samples */
+    uint32_t alignment;  /* Memory alignment in bytes */
+    uint32_t channels;   /* Number of interleaved channels */
+} MklBuffer;
+```
+
+**Sample format**:
+
+- 32-bit IEEE 754 floating point
+- Normalised to range `[-1.0, 1.0]`
+- Little-endian byte order
+
+**Memory layout**:
+
+- Contiguous array of `size * channels` floats
+- Interleaved channel order: `[L0, R0, L1, R1, ...]`
+- Aligned to `alignment` bytes (default: 16 for SSE)
+
+### MklKernelFn
+
+```c
+typedef int32_t (*MklKernelFn)(
+    const MklBuffer* inputs,
+    uint32_t         input_count,
+    MklBuffer*       outputs,
+    uint32_t         output_count
+);
+```
+
+Kernel functions are the workhorses of audio processing. They:
+
+- Read from input buffers (read-only)
+- Write to output buffers (pre-allocated)
+- Return a status code
+
+### MklKernelDescriptor
+
+```c
+typedef struct {
+    uint32_t     abi_version;    /* Must equal MUSIKELL_ABI_VERSION */
+    const char*  kernel_name;    /* Unique kernel identifier (null-terminated) */
+    const char*  kernel_version; /* Semantic version string */
+    uint32_t     input_count;    /* Expected number of inputs */
+    uint32_t     output_count;   /* Expected number of outputs */
+    MklKernelFn  execute;        /* Kernel execution function */
+    void*        user_data;      /* Optional user data */
+} MklKernelDescriptor;
+```
+
+| Field            | Required | Description                                          |
+| ---------------- | -------- | ---------------------------------------------------- |
+| `abi_version`    | yes      | Must match `MUSIKELL_ABI_VERSION`                    |
+| `kernel_name`    | yes      | Unique identifier, null-terminated, owned by backend |
+| `kernel_version` | yes      | Semver string, null-terminated, owned by backend     |
+| `input_count`    | yes      | Number of input buffers the kernel expects           |
+| `output_count`   | yes      | Number of output buffers the kernel produces         |
+| `execute`        | yes      | Kernel function pointer                              |
+| `user_data`      | no       | Optional opaque pointer passed through to execute    |
+
+### MklBackendDescriptor
+
+```c
+typedef struct {
+    uint32_t    abi_version;     /* Must equal MUSIKELL_ABI_VERSION */
+    const char* backend_name;    /* Unique backend identifier */
+    const char* backend_version; /* Semantic version string */
+
+    int32_t (*init)(void** context);
+    int32_t (*shutdown)(void* context);
+
+    int32_t (*register_kernel)(void* context, const MklKernelDescriptor* desc);
+    int32_t (*execute_kernel)(void* context, const char* kernel_name,
+                              const MklBuffer* inputs, uint32_t input_count,
+                              MklBuffer* outputs, uint32_t output_count);
+} MklBackendDescriptor;
+```
+
+| Function pointer  | Signature                                                                        | Description                        |
+| ----------------- | -------------------------------------------------------------------------------- | ---------------------------------- |
+| `init`            | `(void** context) -> int32_t`                                                    | Allocate backend state             |
+| `shutdown`        | `(void* context) -> int32_t`                                                     | Release backend state              |
+| `register_kernel` | `(void* ctx, const MklKernelDescriptor* desc) -> int32_t`                        | Register a kernel with the backend |
+| `execute_kernel`  | `(void* ctx, const char* name, inputs, in_count, outputs, out_count) -> int32_t` | Execute a named kernel             |
+
+### MklRuntimeInfo
+
+```c
+typedef struct {
+    uint32_t block_size;    /* Samples per block */
+    uint32_t sample_rate;   /* Samples per second */
+    uint32_t channel_count; /* Number of channels */
+} MklRuntimeInfo;
+```
+
+Backends can query runtime parameters via this struct.
+
+### MklGetBackendFn
+
+```c
+typedef const MklBackendDescriptor* (*MklGetBackendFn)(void);
+```
+
+Entry point for dynamic backend loading. Backend shared libraries must export a function matching this signature named `mkl_get_backend`.
+
+## Memory Ownership
+
+### Caller-owned buffers
+
+All buffers passed to kernels are owned by the Musikell runtime:
+
+- **Input buffers**: read-only, valid only during the call
+- **Output buffers**: pre-allocated, write-only, valid only during the call
+
+**Kernels must NOT**:
+
+- Free or reallocate buffer memory
+- Store pointers to buffers beyond the call
+- Read from output buffers
+- Write to input buffers
+
+### String ownership
+
+`kernel_name`, `backend_name`, `kernel_version`, `backend_version`: owned by the backend. Must remain valid for the lifetime of the descriptor.
+
+## Threading Model
+
+1. The runtime guarantees that a single kernel instance will not receive concurrent calls.
+2. Different kernel instances may be called concurrently.
+3. Backends must be thread-safe if they maintain shared state.
+
+## Backend Lifecycle
+
+```
+1. musikell loads backend shared library
+2. musikell calls mkl_get_backend() to get descriptor
+3. musikell calls backend.init(&context)
+4. musikell calls backend.register_kernel() for each kernel
+5. [execution loop]
+   musikell calls backend.execute_kernel() for each block
+6. musikell calls backend.shutdown(context)
+7. musikell unloads shared library
+```
+
+## Implementing a Backend
+
+### Minimal example (C)
+
+```c
+#include "Contract.h"
+
+static int32_t my_init(void** ctx) {
+    *ctx = NULL;  /* No state needed */
+    return MKL_OK;
+}
+
+static int32_t my_shutdown(void* ctx) {
+    return MKL_OK;
+}
+
+static int32_t my_register(void* ctx, const MklKernelDescriptor* desc) {
+    /* Store kernel for later use */
+    return MKL_OK;
+}
+
+static int32_t my_execute(void* ctx, const char* name,
+                          const MklBuffer* in, uint32_t in_count,
+                          MklBuffer* out, uint32_t out_count) {
+    /* Process audio */
+    return MKL_OK;
+}
+
+static const MklBackendDescriptor my_backend = {
+    .abi_version = MUSIKELL_ABI_VERSION,
+    .backend_name = "my-backend",
+    .backend_version = "1.0.0",
+    .init = my_init,
+    .shutdown = my_shutdown,
+    .register_kernel = my_register,
+    .execute_kernel = my_execute,
+};
+
+const MklBackendDescriptor* mkl_get_backend(void) {
+    return &my_backend;
+}
+```
+
+### Building
+
+```bash
+# Linux
+gcc -shared -fPIC -o my-backend.so my-backend.c
+
+# macOS
+clang -shared -fPIC -o my-backend.dylib my-backend.c
+
+# Windows
+cl /LD my-backend.c /Fe:my-backend.dll
+```
+
+## Kernel Implementation Guidelines
+
+### Do
+
+- Process exactly `size` samples per buffer
+- Handle all channels (check the `channels` field)
+- Return error codes for invalid input
+- Keep execution time deterministic
+- Pre-allocate all state in the backend `init` function
+
+### Do not
+
+- Allocate memory during `execute`
+- Perform I/O operations
+- Block on locks or sleep
+- Throw exceptions (C++ backends)
+
+### Example kernel: Gain
+
+```c
+static int32_t gain_kernel(
+    const MklBuffer* inputs,
+    uint32_t input_count,
+    MklBuffer* outputs,
+    uint32_t output_count
+) {
+    if (input_count != 1 || output_count != 1) {
+        return MKL_ERR_INVALID;
+    }
+
+    const float gain = 0.5f;  /* -6dB */
+    const MklBuffer* in = &inputs[0];
+    MklBuffer* out = &outputs[0];
+
+    for (uint32_t i = 0; i < in->size; i++) {
+        out->data[i] = in->data[i] * gain;
+    }
+
+    return MKL_OK;
+}
+```
+
+## Haskell-side mapping
+
+The Haskell types in `Musikell.FFI.Bridge` mirror these C types exactly:
+
+| C type                 | Haskell type         | Notes                                           |
+| ---------------------- | -------------------- | ----------------------------------------------- |
+| `MklBuffer`            | `CBuffer`            | `Storable` instance with matching layout        |
+| `MklKernelFn`          | `KernelFnPtr`        | `FunPtr` with matching signature                |
+| `MklKernelDescriptor`  | `CKernelDescriptor`  | `Storable`, 48 bytes                            |
+| `MklBackendDescriptor` | `CBackendDescriptor` | Partial -- function pointers handled separately |
+| `MklRuntimeInfo`       | `CRuntimeInfo`       | `Storable`, 12 bytes                            |
+
+## Version History
+
+| Version | Date    | Changes               |
+| ------- | ------- | --------------------- |
+| 1       | 2024-01 | Initial specification |

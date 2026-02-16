@@ -3,7 +3,6 @@
         nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
         parts.url = "github:hercules-ci/flake-parts";
         treefmt.url = "github:numtide/treefmt-nix";
-        flake-root.url = "github:srid/flake-root";
         precommit.url = "github:cachix/pre-commit-hooks.nix";
     };
 
@@ -34,6 +33,7 @@
                             inherit ghc;
                             ghcpkgs = pkgs.haskell.packages.${ghc};
                         };
+                        projectRoot = ./.;
                     };
                 };
         };

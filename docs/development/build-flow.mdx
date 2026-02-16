@@ -1,0 +1,106 @@
+---
+title: "Build Flow"
+description: "Local dev and staging CI build flow"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "development-build-flow"
+tags: ["development", "build", "flow", "staging", "ci"]
+---
+
+Build flow documentation for local development and staging validation.
+
+## Local development flow
+
+Iterate on the app and see changes immediately.
+
+### 1. Enter dev shell
+
+```bash
+nix develop '.#dev'
+# or with direnv: direnv allow
+```
+
+Provides: cabal, treefmt, pre-commit hooks, Haskell toolchain.
+
+### 2. Build and validate
+
+```bash
+nix build '.#dev'
+```
+
+Runs in one go:
+
+- Build
+- Unit tests
+- Lint / formatting (treefmt, nil, haskell-header)
+
+Output: `result/bin/musikell`
+
+### 3. Run the app
+
+```bash
+./result/bin/musikell run graph.mkl
+# or from dev shell:
+nix run '.#' -- run graph.mkl # run without building the bin file
+```
+
+### 4. See changes
+
+- Edit source under `src/`
+- Re-run `nix build '.#dev'` to rebuild and re-test
+- Or use `nix run '.#' -- run graph.mkl` to run without producing the bin file
+
+### 5. Optional: coverage locally
+
+```bash
+nix build '.#stg'
+# Coverage in result/coverage/
+```
+
+### 6. Format before commit
+
+```bash
+nix develop '.#dev' -c treefmt
+# Or let pre-commit handle it on commit
+```
+
+---
+
+## Staging CI flow
+
+When code is merged to the `staging` branch, CI validates and publishes to the staging Supabase bucket.
+
+### Purpose
+
+- Validate the build on a clean environment
+- Produce a binary for staging/testing
+- Store the binary in Supabase for staging deployments
+
+### Flow
+
+1. **Merge to `staging`** → pipeline runs
+2. **Build** — `nix build '.#dev'` (build + tests + lint)
+3. **Upload** — binary pushed to Supabase bucket as `musikell-<sha>`
+
+### Required
+
+- CI variable: `SUPABASE_SERVICE_ROLE_KEY`
+
+### Binary location
+
+`https://<supabase>/storage/v1/object/musikell/musikell-<commit-sha>`
+
+---
+
+## Main / release flow
+
+When code is merged to `main`, the pipeline runs the build and produces the binary, then pauses at the manual release job until you provide details and run it.
+
+### Flow
+
+1. **Merge to `main`** → pipeline runs → build completes → binary is ready
+2. **Pipeline pauses** at `release-details` (manual)
+3. **Run `release-details`** — provide variables: `RELEASE_TAG`, `RELEASE_NAME`, `RELEASE_DESCRIPTION`, `RELEASE_CHANGELOG`
+4. **Pipeline pauses** at `release-confirm` (manual)
+5. **Run `release-confirm`** — review and confirm
+6. **`release` runs** — uploads binary and creates the GitLab release

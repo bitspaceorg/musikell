@@ -1,0 +1,59 @@
+---
+title: "Musikell.Runtime.Kernel.Foreign"
+description: "Load external kernels from shared libraries via dlopen"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-foreign"
+tags: ["reference", "runtime", "ffi"]
+source: "src/Musikell/Runtime/Kernel/Foreign.hs"
+---
+
+**Module:** `Musikell.Runtime.Kernel.Foreign`
+**Source:** `src/Musikell/Runtime/Kernel/Foreign.hs`
+**Dependencies:** `Foreign.C.*`, `Musikell.Core.Types`, `Musikell.FFI.Bridge`, `Musikell.Memory.Buffer`, `Musikell.Runtime.Kernel`
+
+## Purpose
+
+Loads external backend kernels from shared libraries (`.dylib`/`.so`) via `dlopen`/`dlsym`. The shared library must export a `mkl_register_kernels` function conforming to the C ABI contract.
+
+## Types
+
+### `ForeignLoadError`
+
+```haskell
+data ForeignLoadError
+  = DlOpenFailed String
+  | SymbolNotFound String
+  | AbiVersionMismatch CUInt
+  deriving (Eq, Show)
+```
+
+| Constructor          | Fields   | Description                             |
+| -------------------- | -------- | --------------------------------------- |
+| `DlOpenFailed`       | `String` | `dlopen` failed (error message from OS) |
+| `SymbolNotFound`     | `String` | `mkl_register_kernels` not found        |
+| `AbiVersionMismatch` | `CUInt`  | Kernel ABI version does not match host  |
+
+## Functions
+
+### `loadBackend`
+
+```haskell
+loadBackend :: FilePath -> IO (Either ForeignLoadError [KernelSpec])
+```
+
+Load a shared library and extract all kernel specs.
+
+1. Opens the library with `dlopen` (`RTLD_NOW`)
+2. Resolves the `mkl_register_kernels` symbol
+3. Calls the registration function to get `CKernelDescriptor` array
+4. Converts each descriptor to a `KernelSpec` with pre-allocated `CBuffer` arrays
+
+The returned `KernelSpec` closures write directly into Haskell buffer memory via the C kernel function pointers — no copy-back is needed.
+
+## Usage Notes
+
+- Pre-allocates `CBuffer` arrays once at load time per kernel, reused per block (zero allocation in hot path).
+- ABI version is checked per descriptor — mismatches are reported per kernel.
+- Used by `Musikell.CLI.Dispatch.buildRegistry` when a backend path is provided.
+- See [ABI specification](../../ffi/abi.mdx) for the C contract.

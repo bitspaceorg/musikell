@@ -1,0 +1,102 @@
+---
+title: "Musikell.Core.Node"
+description: "Port and node specification for the audio graph"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-core-node"
+tags: ["reference", "core"]
+source: "src/Musikell/Core/Node.hs"
+---
+
+Defines the `Port` and `NodeSpec` types that form the node model of the audio graph. Each node has typed input/output ports, a kernel reference, and a channel count.
+
+## Dependencies
+
+| Package / Module      | Import                                                        |
+| --------------------- | ------------------------------------------------------------- |
+| `text`                | `Data.Text (Text)`                                            |
+| `Musikell.Core.Types` | `NodeId, PortId, KernelId, ChannelCount, defaultChannelCount` |
+
+## Types
+
+### Port
+
+A connection point on a node.
+
+```haskell
+data Port = Port
+  { portId   :: !PortId
+  , portName :: !Text
+  } deriving (Eq, Show)
+```
+
+| Field      | Type     | Strictness | Description                            |
+| ---------- | -------- | ---------- | -------------------------------------- |
+| `portId`   | `PortId` | strict     | Unique port identifier within the node |
+| `portName` | `Text`   | strict     | Human-readable port name               |
+
+### NodeSpec
+
+Specification of a node in the graph.
+
+```haskell
+data NodeSpec = NodeSpec
+  { nodeId       :: !NodeId
+  , nodeInputs   :: ![Port]
+  , nodeOutputs  :: ![Port]
+  , nodeKernel   :: !KernelId
+  , nodeChannels :: !ChannelCount
+  } deriving (Eq, Show)
+```
+
+| Field          | Type           | Strictness     | Description                                     |
+| -------------- | -------------- | -------------- | ----------------------------------------------- |
+| `nodeId`       | `NodeId`       | strict         | Unique node identifier in the graph             |
+| `nodeInputs`   | `[Port]`       | strict (spine) | List of input ports                             |
+| `nodeOutputs`  | `[Port]`       | strict (spine) | List of output ports                            |
+| `nodeKernel`   | `KernelId`     | strict         | Kernel that processes this node                 |
+| `nodeChannels` | `ChannelCount` | strict         | Number of audio channels (1 = mono, 2 = stereo) |
+
+## Constructors
+
+| Function                 | Signature                                                            | Description                                                              |
+| ------------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `mkPort`                 | `PortId -> Text -> Port`                                             | Create a port with the given ID and name                                 |
+| `mkNodeSpec`             | `NodeId -> [Port] -> [Port] -> KernelId -> NodeSpec`                 | Create a node specification (defaults to mono via `defaultChannelCount`) |
+| `mkNodeSpecWithChannels` | `NodeId -> [Port] -> [Port] -> KernelId -> ChannelCount -> NodeSpec` | Create a node specification with explicit channel count                  |
+
+### mkNodeSpec
+
+```haskell
+mkNodeSpec :: NodeId -> [Port] -> [Port] -> KernelId -> NodeSpec
+mkNodeSpec nid ins outs kid = NodeSpec nid ins outs kid defaultChannelCount
+```
+
+Delegates to `NodeSpec` with `defaultChannelCount` (1, mono). Use `mkNodeSpecWithChannels` when stereo or multi-channel processing is needed.
+
+### mkNodeSpecWithChannels
+
+```haskell
+mkNodeSpecWithChannels :: NodeId -> [Port] -> [Port] -> KernelId -> ChannelCount -> NodeSpec
+mkNodeSpecWithChannels = NodeSpec
+```
+
+Direct constructor application with explicit channel count.
+
+## Query functions
+
+| Function          | Signature                    | Description                                            |
+| ----------------- | ---------------------------- | ------------------------------------------------------ |
+| `nodeInputCount`  | `NodeSpec -> Int`            | Number of input ports (`length . nodeInputs`)          |
+| `nodeOutputCount` | `NodeSpec -> Int`            | Number of output ports (`length . nodeOutputs`)        |
+| `hasInput`        | `PortId -> NodeSpec -> Bool` | Check if the node has an input port with the given ID  |
+| `hasOutput`       | `PortId -> NodeSpec -> Bool` | Check if the node has an output port with the given ID |
+
+### hasInput / hasOutput
+
+Both scan the port list with `any`, matching on `portId`. O(n) in the number of ports.
+
+```haskell
+hasInput pid node = any ((== pid) . portId) (nodeInputs node)
+hasOutput pid node = any ((== pid) . portId) (nodeOutputs node)
+```

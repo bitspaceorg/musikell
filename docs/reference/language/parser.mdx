@@ -1,0 +1,172 @@
+---
+title: "Musikell.Language.Parser"
+description: "Hand-rolled recursive-descent parser for the Musikell DSL"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-language-parser"
+tags: ["reference", "language"]
+source: "src/Musikell/Language/Parser.hs"
+---
+
+Hand-rolled recursive-descent parser for the Musikell DSL (`.mkl` files). Uses precedence climbing for binary arithmetic operators. No external parser library dependencies (no megaparsec, no attoparsec).
+
+## Purpose
+
+The parser transforms raw `.mkl` source text into a `Program` AST. It handles the full syntax: imports, groups, multi-input nodes, feedback references, arithmetic expressions, parameter sets, bypass/mute prefixes, beat patterns, conditional sugar, and namespaced plugin kernels.
+
+## Language extensions
+
+| Extension           | Reason                            |
+| ------------------- | --------------------------------- |
+| `OverloadedStrings` | `Text` literals in error messages |
+| `BangPatterns`      | Strict bindings in parser state   |
+
+## Dependencies
+
+| Package  | Import                                              |
+| -------- | --------------------------------------------------- |
+| `base`   | `Data.Char (isAlpha, isAlphaNum, isDigit, isUpper)` |
+| `text`   | `Data.Text (Text)`, `Data.Text.IO`                  |
+| musikell | `Musikell.Language.AST` (all types)                 |
+
+## Types
+
+### ParseError
+
+Error type returned when parsing fails.
+
+```haskell
+data ParseError = ParseError
+  { parseErrorPos :: !SourcePos
+  , parseErrorMsg :: !Text
+  } deriving (Eq, Show)
+```
+
+| Field           | Type        | Description                                     |
+| --------------- | ----------- | ----------------------------------------------- |
+| `parseErrorPos` | `SourcePos` | Position in the source where the error occurred |
+| `parseErrorMsg` | `Text`      | Human-readable error message                    |
+
+### Internal types (not exported)
+
+#### PState
+
+Parser state carrying the remaining input and current position.
+
+```haskell
+data PState = PState
+  { psInput :: !Text
+  , psPos   :: !SourcePos
+  }
+```
+
+#### P
+
+Parser monad: `State + Either`, hand-rolled without `mtl`.
+
+```haskell
+newtype P a = P { runP :: PState -> Either ParseError (a, PState) }
+```
+
+Implements `Functor`, `Applicative`, and `Monad` manually. Combinators built on top: `peek`, `peek2`, `advance`, `satisfy`, `char`, `string`, `optional`, `try`, `orElse`, `many`, `many1`.
+
+## Functions
+
+### Entry points
+
+#### parseProgram
+
+```haskell
+parseProgram :: FilePath -> Text -> Either ParseError Program
+```
+
+Parse a complete `.mkl` program from source text. The `FilePath` is used for error reporting in `SourcePos` -- no file I/O is performed.
+
+#### parseFile
+
+```haskell
+parseFile :: FilePath -> IO (Either ParseError Program)
+```
+
+Read a file from disk and parse it. Equivalent to `TIO.readFile path >>= pure . parseProgram path`.
+
+## Parser architecture
+
+### Precedence climbing
+
+Binary operators use precedence climbing with two levels:
+
+| Precedence | Operators |
+| ---------- | --------- |
+| 0          | `+`, `-`  |
+| 1          | `*`, `/`  |
+
+The parser calls `pExprPrec minPrec` which parses a left-hand atom, then loops consuming operators whose precedence meets the minimum. Right-hand operands are parsed at `prec + 1` to enforce left-associativity.
+
+Special handling: `-` is disambiguated from `--` (comment) by peeking at the second character.
+
+### Atom expressions
+
+Atoms are the highest-precedence expressions, dispatched by the first character:
+
+| First char  | Parse action                            |
+| ----------- | --------------------------------------- |
+| `"`         | String literal                          |
+| `~`         | Feedback reference (`~qualname`)        |
+| `(`         | Parenthesized expression                |
+| `-`         | Unary negation                          |
+| digit       | Number (integer or decimal)             |
+| alpha / `_` | Identifier-start expression (see below) |
+
+### Identifier-start expressions
+
+When an atom starts with an identifier, the parser disambiguates:
+
+| Token                                         | Result                                    |
+| --------------------------------------------- | ----------------------------------------- |
+| `true` / `false`                              | `ExprLit (LitBool _)`                     |
+| `Creational` / `Manipulative` / `Conditional` | Node expression body                      |
+| `min(` / `max(` / `clamp(`                    | Function call `ExprCall`                  |
+| other                                         | Qualified variable `ExprVar (QualName _)` |
+
+### Statement dispatch
+
+Statements are dispatched by the first token:
+
+| First token                  | Statement type                        |
+| ---------------------------- | ------------------------------------- |
+| `--`                         | `CommentStmt`                         |
+| `!`                          | `Binding PrefixBypass`                |
+| `#`                          | `Binding PrefixMute`                  |
+| `use`                        | Import declaration (at program level) |
+| `group`                      | `GroupDef`                            |
+| identifier followed by `=`   | `Binding PrefixNone`                  |
+| identifier followed by `=>`  | `ParamSet`                            |
+| identifier followed by `<<<` | `IOStmt StreamIn`                     |
+| identifier followed by `>>>` | `IOStmt StreamOut`                    |
+
+### Node expression parsing
+
+After a `NodeType` keyword, the parser expects:
+
+```
+NodeType [<inputs>] [(overrides)] .Kernel [<TypeParam>] (named_args) [.method()...]
+```
+
+- **Inputs**: `<ref, ref, ~feedback_ref>` (optional)
+- **Overrides**: `(expr, expr)` between inputs and kernel (optional)
+- **Kernel**: `.Name` or `.Namespace.Name` (required, starts with `.` + uppercase)
+- **Type parameter**: `<IDENT>` after kernel name (optional)
+- **Named args**: `(key=val, key=val)` (required, may be empty `()`)
+- **Methods**: `.method<T>(args)` chain (optional, zero or more)
+
+### Beat patterns
+
+When a named argument has `key == "pattern"`, the value is parsed as a beat pattern (`[xXoO_]+`) instead of a normal expression, producing `ExprLit (LitPattern _)`.
+
+## Usage Notes
+
+- The parser is fully self-contained with no external dependencies. The `P` monad is equivalent to `StateT PState (Either ParseError)` but avoids the `mtl` dependency.
+- Whitespace handling distinguishes horizontal space (spaces and tabs) from full whitespace (including newlines). Horizontal space is skipped within expressions; newlines are significant for statement separation.
+- The `try` combinator resets the position on failure, enabling backtracking for ambiguous prefixes like `use` vs a user-defined identifier.
+- Import declarations are parsed at the program level and separated from statements. An `import` keyword inside a group or binding position produces an error.

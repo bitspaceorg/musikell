@@ -1,0 +1,222 @@
+---
+title: "Backend Guide"
+description: "How to implement a custom Musikell backend via the C ABI"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "architecture/backend-guide"
+tags: ["architecture", "ffi", "backend", "guide"]
+---
+
+## Architecture Overview
+
+```
++-----------------------------------------------------+
+|                  Musikell Runtime                     |
++-----------------------------------------------------+
+|  Graph | Scheduler | Memory | IO                     |
++-----------------------------------------------------+
+|                    FFI Bridge                         |
++-----------------------------------------------------+
+|              Your Backend (Shared Lib)                |
++-----------------------------------------------------+
+```
+
+Your backend lives below the FFI bridge. It receives:
+
+- Pre-allocated input/output buffers (caller-owned, valid only during the call)
+- Kernel identifiers (null-terminated C strings)
+- Runtime configuration (block size, sample rate, channel count)
+
+It provides:
+
+- Kernel execution (the audio processing itself)
+- Optional GPU acceleration
+- Optional SIMD optimization
+
+## Prerequisites
+
+- Familiarity with C FFI from your language of choice
+- Understanding of real-time audio constraints (no allocation, no I/O, no locks in the audio callback)
+- A copy of `Contract.h` from the Musikell source (`src/Musikell/FFI/Contract.h`)
+
+The full C ABI specification is available at [C ABI Specification](../reference/ffi/abi.mdx).
+
+## Step-by-Step Implementation
+
+### 1. Include the contract header
+
+```c
+#include "Contract.h"
+```
+
+This gives you the type definitions: `MklBuffer`, `MklKernelFn`, `MklKernelDescriptor`, `MklBackendDescriptor`, and the return codes (`MKL_OK`, `MKL_ERR_INVALID`, `MKL_ERR_OVERFLOW`, `MKL_ERR_INTERNAL`).
+
+### 2. Implement the backend descriptor
+
+The `MklBackendDescriptor` struct defines your backend's lifecycle hooks:
+
+```c
+static int32_t my_init(void** ctx) {
+    // Allocate any persistent state your backend needs.
+    // Store it in *ctx — this pointer is passed to all subsequent calls.
+    *ctx = NULL;  // No state needed for a minimal backend
+    return MKL_OK;
+}
+
+static int32_t my_shutdown(void* ctx) {
+    // Free any resources allocated in init.
+    return MKL_OK;
+}
+
+static int32_t my_register(void* ctx, const MklKernelDescriptor* desc) {
+    // Store the kernel descriptor for later use during execute_kernel.
+    // You may want to build a lookup table keyed by kernel_name.
+    return MKL_OK;
+}
+
+static int32_t my_execute(void* ctx, const char* name,
+                          const MklBuffer* in, uint32_t in_count,
+                          MklBuffer* out, uint32_t out_count) {
+    // Look up the kernel by name and process audio.
+    // Read from in[0..in_count-1], write to out[0..out_count-1].
+    return MKL_OK;
+}
+
+static const MklBackendDescriptor my_backend = {
+    .abi_version     = MUSIKELL_ABI_VERSION,
+    .backend_name    = "my-backend",
+    .backend_version = "1.0.0",
+    .init            = my_init,
+    .shutdown        = my_shutdown,
+    .register_kernel = my_register,
+    .execute_kernel  = my_execute,
+};
+```
+
+### 3. Export the entry point
+
+The runtime loads your shared library and calls `mkl_get_backend()` to obtain the descriptor:
+
+```c
+const MklBackendDescriptor* mkl_get_backend(void) {
+    return &my_backend;
+}
+```
+
+This is the only symbol your library needs to export.
+
+### Example kernel: Gain
+
+```c
+static int32_t gain_kernel(
+    const MklBuffer* inputs,
+    uint32_t input_count,
+    MklBuffer* outputs,
+    uint32_t output_count
+) {
+    if (input_count != 1 || output_count != 1) {
+        return MKL_ERR_INVALID;
+    }
+
+    const float gain = 0.5f;  // -6dB
+    const MklBuffer* in = &inputs[0];
+    MklBuffer* out = &outputs[0];
+
+    for (uint32_t i = 0; i < in->size * in->channels; i++) {
+        out->data[i] = in->data[i] * gain;
+    }
+
+    return MKL_OK;
+}
+```
+
+## Building
+
+Compile your backend as a shared library:
+
+```bash
+# Linux
+gcc -shared -fPIC -o my-backend.so my-backend.c -I/path/to/musikell/src/Musikell/FFI
+
+# macOS
+clang -shared -fPIC -o my-backend.dylib my-backend.c -I/path/to/musikell/src/Musikell/FFI
+
+# Windows
+cl /LD my-backend.c /Fe:my-backend.dll /I path\to\musikell\src\Musikell\FFI
+```
+
+The `-I` flag should point to the directory containing `Contract.h`.
+
+## Loading
+
+Load your backend at runtime:
+
+```bash
+# Load from a local shared library
+musikell run --backend=path/to/my-backend.so graph.mkl
+
+# Set a default backend (loaded automatically)
+musikell config set default_backend=path/to/my-backend.so
+
+# Load from a remote source (future)
+musikell config set default_backend=github:User/repo
+```
+
+## Backend Lifecycle
+
+The runtime manages the backend through a well-defined lifecycle:
+
+```
+1. Load      musikell loads backend shared library (dlopen / LoadLibrary)
+2. Discover  musikell calls mkl_get_backend() to get the descriptor
+3. Validate  musikell checks abi_version == MUSIKELL_ABI_VERSION
+4. Init      musikell calls backend.init(&context)
+5. Register  musikell calls backend.register_kernel() for each kernel in the graph
+6. Execute   [block loop]
+             musikell calls backend.execute_kernel() for each node per block
+7. Shutdown  musikell calls backend.shutdown(context)
+8. Unload    musikell unloads the shared library (dlclose / FreeLibrary)
+```
+
+### Lifecycle guarantees
+
+- `init` is called exactly once before any other function.
+- `register_kernel` is called once per kernel before execution begins.
+- `execute_kernel` may be called from any thread, but the runtime guarantees no concurrent calls to the same kernel instance.
+- `shutdown` is called exactly once after all execution completes.
+- String pointers (`backend_name`, `kernel_name`, etc.) must remain valid for the lifetime of their containing descriptor.
+
+## Kernel Implementation Guidelines
+
+### Do
+
+- Process exactly `size * channels` samples per buffer
+- Handle all channels (check the `channels` field)
+- Return appropriate error codes for invalid input
+- Keep execution time deterministic and bounded
+- Pre-allocate any working memory in `init`
+
+### Do not
+
+- Allocate memory during `execute_kernel` (pre-allocate in `init`)
+- Perform I/O operations (file, network, console)
+- Block on locks, mutexes, or sleep
+- Throw exceptions (C++ backends must catch internally)
+- Store pointers to buffers beyond the call (they are only valid during the call)
+- Write to input buffers or read from output buffers
+
+## Runtime Information
+
+Backends can receive runtime parameters via the `MklRuntimeInfo` struct:
+
+```c
+typedef struct {
+    uint32_t block_size;    // Samples per block (e.g., 256, 512, 1024)
+    uint32_t sample_rate;   // Samples per second (e.g., 44100, 48000)
+    uint32_t channel_count; // Number of channels (1 = mono, 2 = stereo)
+} MklRuntimeInfo;
+```
+
+## Further Reading
+
+- [C ABI Specification](../reference/ffi/abi.mdx) — Complete type definitions, return codes, memory ownership rules, and threading model

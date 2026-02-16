@@ -1,0 +1,85 @@
+---
+title: "Musikell.Runtime.Accelerate.Context"
+description: "Runtime context bundling backend, config, and kernel registry"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-accelerate-context"
+tags: ["reference", "runtime", "accelerate"]
+source: "src/Musikell/Runtime/Accelerate/Context.hs"
+---
+
+**Module:** `Musikell.Runtime.Accelerate.Context`
+**Source:** `src/Musikell/Runtime/Accelerate/Context.hs`
+**Dependencies:** `Musikell.Core.Types`, `Musikell.Runtime.Kernel`
+
+## Purpose
+
+Bundles backend state, runtime configuration, and the kernel registry into a single `Context` value for a runtime session.
+
+## Types
+
+### `RuntimeConfig`
+
+```haskell
+data RuntimeConfig = RuntimeConfig
+  { configBlockSize  :: !BlockSize
+  , configSampleRate :: !SampleRate
+  , configDebug      :: !Bool
+  } deriving (Eq, Show)
+```
+
+| Field              | Type         | Description         |
+| ------------------ | ------------ | ------------------- |
+| `configBlockSize`  | `BlockSize`  | Samples per block   |
+| `configSampleRate` | `SampleRate` | Sample rate in Hz   |
+| `configDebug`      | `Bool`       | Enable debug output |
+
+### `Context`
+
+```haskell
+data Context b = Context
+  { contextBackend  :: !b
+  , contextConfig   :: !RuntimeConfig
+  , contextRegistry :: !KernelRegistry
+  }
+```
+
+| Field             | Type             | Description            |
+| ----------------- | ---------------- | ---------------------- |
+| `contextBackend`  | `b`              | Backend-specific state |
+| `contextConfig`   | `RuntimeConfig`  | Runtime configuration  |
+| `contextRegistry` | `KernelRegistry` | Available kernels      |
+
+## Functions
+
+### `defaultRuntimeConfig`
+
+```haskell
+defaultRuntimeConfig :: RuntimeConfig
+```
+
+Default: `defaultBlockSize`, `defaultSampleRate`, `configDebug = False`.
+
+### `createContext`
+
+```haskell
+createContext :: b -> RuntimeConfig -> IO (Context b)
+```
+
+Create a new context with an empty kernel registry.
+
+### `destroyContext`
+
+```haskell
+destroyContext :: Context b -> IO ()
+```
+
+Destroy a context (currently a no-op).
+
+### `withContext`
+
+```haskell
+withContext :: b -> RuntimeConfig -> (Context b -> IO a) -> IO a
+```
+
+Bracket-style context creation and destruction.

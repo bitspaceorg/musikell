@@ -1,0 +1,28 @@
+---
+title: "Memory Layer"
+description: "Buffer allocation, layout specification, and pool management"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-memory"
+tags: ["reference", "memory"]
+---
+
+Memory layer: storable mutable buffers, alignment-aware layout, and pre-allocated pool for zero-allocation scheduling.
+
+## Pipeline
+
+```
+Layout (spec) --> allocateBuffer --> BufferPool (IntMap)
+                                      |
+                                   getPoolBuffer  (O(log n) per lookup)
+                                   resetPool      (zero all buffers)
+                                   swapFeedback   (pointer swap, no copy)
+```
+
+## Modules
+
+| Module                      | Description                                                                            |
+| --------------------------- | -------------------------------------------------------------------------------------- |
+| [Buffer](memory/buffer.mdx) | `IOVector Float` wrapper with safe/unsafe sample access, copy, FFI pointer export      |
+| [Layout](memory/layout.mdx) | Alignment and channel-aware size calculations, validation                              |
+| [Pool](memory/pool.mdx)     | Pre-allocated `IntMap Buffer` keyed by `nodeId * 1000 + portId`, feedback buffer pairs |

@@ -1,0 +1,187 @@
+---
+title: "Node Model"
+description: "Node taxonomy and expression anatomy for Musikell's audio graph DSL"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "architecture/node-model"
+tags: ["architecture", "nodes", "dsl", "graph"]
+---
+
+## Overview
+
+Musikell's DSL uses three node types that correspond to different roles in the audio graph. Every node in the graph is a `NodeSpec` with a unique `NodeId`, a list of input ports, a list of output ports, and a `KernelId` identifying which kernel processes its buffers. The node type determines the port contract — how many inputs and outputs are expected and what they represent.
+
+## Creational Nodes
+
+Creational nodes generate audio from nothing. They have zero input ports and one or more output ports.
+
+### Behaviour
+
+Creational nodes allocate and populate output buffers without depending on upstream nodes. They typically map directly to registered kernels and expose their configuration through kernel parameters.
+
+### NodeSpec contract
+
+| Field         | Type       | Notes                                                            |
+| ------------- | ---------- | ---------------------------------------------------------------- |
+| `nodeId`      | `NodeId`   | Unique identifier allocated by the graph builder                 |
+| `nodeInputs`  | `[Port]`   | Must be empty — creational nodes do not consume upstream buffers |
+| `nodeOutputs` | `[Port]`   | At least one output port producing generated buffers             |
+| `nodeKernel`  | `KernelId` | Registered kernel that synthesizes the buffer contents           |
+
+### Examples
+
+- **Oscillators**: Sine, square, sawtooth, triangle waveforms at a given frequency
+- **Noise generators**: White, pink, brown noise
+- **Sequencers**: Beat pattern generators that output gate signals
+
+### DSL syntax
+
+```
+osc = Creational.Oscillator<Sine>(freq=440)
+noise = Creational.Noise<White>()
+beat = Creational.Beat(bpm=128, division=16, pattern=|x__x|)
+```
+
+## Manipulative Nodes
+
+Manipulative nodes transform audio. They take one or more inputs and produce one or more outputs.
+
+### Behaviour
+
+Manipulative nodes transform input buffers via DSP kernels. They may change amplitude, spectrum, or temporal properties, but must honour real-time safety requirements: no allocation, deterministic execution time.
+
+### NodeSpec contract
+
+| Field         | Type       | Notes                                            |
+| ------------- | ---------- | ------------------------------------------------ |
+| `nodeId`      | `NodeId`   | Unique identifier allocated by the graph builder |
+| `nodeInputs`  | `[Port]`   | One or more inputs consuming upstream buffers    |
+| `nodeOutputs` | `[Port]`   | One or more outputs publishing processed buffers |
+| `nodeKernel`  | `KernelId` | Kernel implementing the DSP transformation       |
+
+### Examples
+
+- **Gain**: Scales signal amplitude
+- **Filter**: Lowpass, highpass, bandpass, notch filtering (SVF)
+- **Delay**: Sample-accurate delay with interpolation
+- **Reverb**: FDN-based room simulation
+- **Dynamics**: Compression, limiting, gating
+
+### DSL syntax
+
+```
+filtered = Manipulative<source>.Filter<LP>(cutoff=1000, resonance=0.7)
+loud = Manipulative<source>.Gain(level=0.8)
+delayed = Manipulative<source>.Delay(samples=4410)
+```
+
+## Conditional Nodes
+
+Conditional nodes route or switch audio based on conditions. They inspect their inputs and decide which output buffers to emit.
+
+### Behaviour
+
+Conditional nodes do not allocate new buffers. Instead they gate or route existing ones according to kernel-defined predicates. They are used for signal routing, A/B switching, and crossfading.
+
+### NodeSpec contract
+
+| Field         | Type       | Notes                                                                  |
+| ------------- | ---------- | ---------------------------------------------------------------------- |
+| `nodeId`      | `NodeId`   | Unique identifier allocated by the graph builder                       |
+| `nodeInputs`  | `[Port]`   | One or more input ports supplying candidate buffers                    |
+| `nodeOutputs` | `[Port]`   | One or more output ports for routed buffers                            |
+| `nodeKernel`  | `KernelId` | Kernel implementing the conditional logic (routing, gating, selection) |
+
+### Examples
+
+- **Bypass**: Passes signal through or routes around a processing chain
+- **Mute**: Silences signal based on a gate condition
+- **Crossfade**: Blends between two input signals based on a mix parameter
+
+### DSL syntax
+
+```
+xfade = Conditional<a, b>.Crossfade()
+!bypassed = Manipulative<source>.Filter<LP>(cutoff=500)
+#muted = Manipulative<source>.Gain(level=0.5)
+```
+
+The `!` prefix marks a node as bypassed (signal passes through unprocessed). The `#` prefix marks a node as muted (output is silence). Both are tracked in `lowerBypassSet` and `lowerMuteSet` in the lowering result.
+
+## Topological Concepts
+
+### Groups
+
+Groups define sub-graphs with automatic mixing. All nodes defined within a group scope are collected as group members. When a group name is referenced as an input to another node, the lowering pass auto-generates a mix node that sums all group member outputs:
+
+```
+group Layers {
+    pad = Creational.Oscillator<Sine>(freq=220)
+    lead = Creational.Oscillator<Sawtooth>(freq=440)
+}
+
+// Referencing "Layers" creates an auto-mix node summing pad + lead
+out = Manipulative<Layers>.Gain(level=0.5)
+```
+
+The auto-mix node is created lazily on first reference and cached in `GroupInfo.groupMixNode`.
+
+### Feedback edges
+
+Feedback references use the `~` prefix to create feedback edges in the graph:
+
+```
+delay_out = Manipulative<source, ~delay_out>.Delay(samples=4410)
+```
+
+Feedback edges are marked as such in the graph (`mkFeedbackEdge`). The scheduler implements one-block delay for feedback paths: `swapFeedbackBuffers` exchanges the read and write copies of feedback buffers after each block, ensuring the feedback signal is always one block behind.
+
+### Channel splits
+
+The `.L` and `.R` dot-access syntax extracts individual channels from a multi-channel signal:
+
+```
+stereo_in <<< input
+left = stereo_in.L
+right = stereo_in.R
+```
+
+This creates a channel split node (`channelSplitKernel`) that copies the specified channel from the input buffer to its output buffer.
+
+## Node Expression Anatomy
+
+A complete annotated breakdown of a node expression:
+
+```
+Manipulative<input>(override).Filter<LP>(cutoff=1000, resonance=0.7).Gain(level=0.8)
+|           |      |         |      |   |                          |
+|           |      |         |      |   |                          +-- Method chain
+|           |      |         |      |   +-- Named arguments (kernel params)
+|           |      |         |      +-- Type parameter (filter mode)
+|           |      |         +-- Kernel name
+|           |      +-- Overrides (parameter set refs or expressions)
+|           +-- Inputs (variable references, comma-separated)
++-- Node type (Creational, Manipulative, Conditional)
+```
+
+Structured view:
+
+```
+Manipulative<input>(override).Filter<LP>(cutoff=1000, resonance=0.7).Gain(level=0.8)
++-- NodeType: Manipulative
++-- Inputs: <input>
++-- Overrides: (override)
++-- Kernel: Filter
++-- Type param: <LP>
++-- Args: (cutoff=1000, resonance=0.7)
++-- Method chain: .Gain(level=0.8)
+```
+
+The lowering pass processes this as:
+
+1. Resolve `input` to a `NodeId` via variable lookup.
+2. Evaluate `override` against parameter sets.
+3. Create a `Filter` node with the merged argument map.
+4. Wire `input` to the filter node's input port.
+5. Process the `.Gain(level=0.8)` method chain: create a separate Gain node wired in series after the filter.
+6. Bind the final node ID (the Gain node) to the variable on the left-hand side of the assignment.

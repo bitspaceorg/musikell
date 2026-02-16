@@ -1,0 +1,19 @@
+-- drum-machine.mkl
+-- Simple drum machine with kick and hihat patterns.
+
+input stdin
+
+-- Kick: sine oscillator gated by a four-on-the-floor pattern
+kick_seq = Creational.Sequencer(pattern=|x...x...x...x...|, bpm=120, subdivision=4)
+kick_osc = Creational.Oscillator<Sine>(freq=60)
+kick = Manipulative<kick_osc, kick_seq>.Gain(level=0.8)
+
+-- Hihat: noise gated by an offbeat pattern
+hat_seq = Creational.Sequencer(pattern=|..x...x...x...x.|, bpm=120, subdivision=4)
+hat_noise = Creational.Noise<White>(seed=42)
+hat_filtered = Manipulative<hat_noise>.Filter<HP>(cutoff=8000, resonance=0.3)
+hat = Manipulative<hat_filtered, hat_seq>.Gain(level=0.4)
+
+-- Mix and output
+mix = Manipulative<kick, hat>.Mix()
+output mix

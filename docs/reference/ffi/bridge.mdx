@@ -1,0 +1,194 @@
+---
+title: "Musikell.FFI.Bridge"
+description: "C-compatible types and marshalling for FFI interop"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-ffi-bridge"
+tags: ["reference", "ffi"]
+source: "src/Musikell/FFI/Bridge.hs"
+---
+
+C-compatible types and marshalling functions for the FFI boundary. This module defines the Haskell representations of the C ABI structs and provides conversion between Haskell `Buffer` and C `CBuffer`.
+
+## Language extensions
+
+| Extension                  | Reason                                               |
+| -------------------------- | ---------------------------------------------------- |
+| `ForeignFunctionInterface` | FFI import for `mkl_tick_once` and `dynamic` wrapper |
+| `CApiFFI`                  | C API FFI for tick loop binding                      |
+
+## Dependencies
+
+| Package  | Import                                                                          |
+| -------- | ------------------------------------------------------------------------------- |
+| `base`   | `Foreign.C.Types`, `Foreign.C.String`, `Foreign.Ptr`, `Foreign.Storable`        |
+| `base`   | `Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`                                |
+| musikell | `Musikell.Core.Types (BlockSize)`                                               |
+| musikell | `Musikell.Memory.Buffer (Buffer, bufferToList, listToBuffer, unsafeWithBuffer)` |
+| musikell | `Musikell.Memory.Layout (defaultAlignment, defaultChannels)`                    |
+
+## Constants
+
+| Name             | Type   | Value | Description          |
+| ---------------- | ------ | ----- | -------------------- |
+| `mklAbiVersion`  | `CInt` | `1`   | ABI version constant |
+| `mklOk`          | `CInt` | `0`   | Success return code  |
+| `mklErrInvalid`  | `CInt` | `-1`  | Invalid parameter    |
+| `mklErrOverflow` | `CInt` | `-2`  | Buffer overflow      |
+| `mklErrInternal` | `CInt` | `-3`  | Internal error       |
+
+## Types
+
+### CBuffer
+
+C-compatible buffer structure. Mirrors `MklBuffer` from the C ABI.
+
+```haskell
+data CBuffer = CBuffer
+  { cbData      :: Ptr CFloat
+  , cbSize      :: CUInt
+  , cbAlignment :: CUInt
+  , cbChannels  :: CUInt
+  }
+```
+
+| Field         | Type         | Description                        |
+| ------------- | ------------ | ---------------------------------- |
+| `cbData`      | `Ptr CFloat` | Pointer to sample data (not owned) |
+| `cbSize`      | `CUInt`      | Number of samples                  |
+| `cbAlignment` | `CUInt`      | Memory alignment in bytes          |
+| `cbChannels`  | `CUInt`      | Number of interleaved channels     |
+
+`Storable` instance: `sizeOf = 32`, `alignment = 8`. Layout: data(8) + size(4) + alignment(4) + channels(4) + padding.
+
+### CKernelDescriptor
+
+C-compatible kernel descriptor. Mirrors `MklKernelDescriptor` from the C ABI.
+
+```haskell
+data CKernelDescriptor = CKernelDescriptor
+  { ckdAbiVersion    :: CUInt
+  , ckdKernelName    :: CString
+  , ckdKernelVersion :: CString
+  , ckdInputCount    :: CUInt
+  , ckdOutputCount   :: CUInt
+  , ckdExecute       :: KernelFnPtr
+  , ckdUserData      :: Ptr ()
+  }
+```
+
+| Field              | Type          | Description                           |
+| ------------------ | ------------- | ------------------------------------- |
+| `ckdAbiVersion`    | `CUInt`       | Must equal `MUSIKELL_ABI_VERSION` (1) |
+| `ckdKernelName`    | `CString`     | Null-terminated kernel identifier     |
+| `ckdKernelVersion` | `CString`     | Semantic version string               |
+| `ckdInputCount`    | `CUInt`       | Expected number of input buffers      |
+| `ckdOutputCount`   | `CUInt`       | Expected number of output buffers     |
+| `ckdExecute`       | `KernelFnPtr` | Kernel execution function pointer     |
+| `ckdUserData`      | `Ptr ()`      | Optional opaque user data             |
+
+`Storable` instance: `sizeOf = 48`, `alignment = 8`.
+
+### CBackendDescriptor
+
+C-compatible backend descriptor. Mirrors `MklBackendDescriptor` from the C ABI.
+
+```haskell
+data CBackendDescriptor = CBackendDescriptor
+  { cbdAbiVersion     :: CUInt
+  , cbdBackendName    :: CString
+  , cbdBackendVersion :: CString
+  }
+```
+
+| Field               | Type      | Description                           |
+| ------------------- | --------- | ------------------------------------- |
+| `cbdAbiVersion`     | `CUInt`   | Must equal `MUSIKELL_ABI_VERSION` (1) |
+| `cbdBackendName`    | `CString` | Null-terminated backend identifier    |
+| `cbdBackendVersion` | `CString` | Semantic version string               |
+
+### CRuntimeInfo
+
+C-compatible runtime information query.
+
+```haskell
+data CRuntimeInfo = CRuntimeInfo
+  { criBlockSize    :: CUInt
+  , criSampleRate   :: CUInt
+  , criChannelCount :: CUInt
+  }
+```
+
+| Field             | Type    | Description        |
+| ----------------- | ------- | ------------------ |
+| `criBlockSize`    | `CUInt` | Samples per block  |
+| `criSampleRate`   | `CUInt` | Samples per second |
+| `criChannelCount` | `CUInt` | Number of channels |
+
+`Storable` instance: `sizeOf = 12`, `alignment = 4`.
+
+### CExecutionPlan
+
+Opaque handle to the C-side execution plan.
+
+```haskell
+newtype CExecutionPlan = CExecutionPlan (Ptr ())
+```
+
+The Haskell side allocates and fills this struct, then passes it to `mkl_tick_once` via FFI. Used for the native C tick loop (not yet wired).
+
+## Function pointer types
+
+### KernelFnPtr
+
+```haskell
+type KernelFnPtr = FunPtr (Ptr CBuffer -> CUInt -> Ptr CBuffer -> CUInt -> IO CInt)
+```
+
+Function pointer type for kernel execution. Matches the C signature `MklKernelFn`.
+
+## Functions
+
+### Conversion
+
+#### bufferToCBuffer
+
+```haskell
+bufferToCBuffer :: Buffer -> IO CBuffer
+```
+
+Convert a Haskell `Buffer` to a `CBuffer` for passing to external kernels. Uses `unsafeWithBuffer` to obtain the raw pointer. Sets alignment and channels from `defaultAlignment` and `defaultChannels`.
+
+#### cBufferToBuffer
+
+```haskell
+cBufferToBuffer :: CBuffer -> IO Buffer
+```
+
+Convert a `CBuffer` back to a Haskell `Buffer`. Peeks the float array and creates a new buffer via `listToBuffer`. Allocates -- not for hot-path use.
+
+### Function pointer unwrapping
+
+#### mkKernelFn
+
+```haskell
+mkKernelFn :: KernelFnPtr -> (Ptr CBuffer -> CUInt -> Ptr CBuffer -> CUInt -> IO CInt)
+```
+
+Convert a `KernelFnPtr` to a callable Haskell function. Uses `foreign import ccall "dynamic"`.
+
+### Tick loop FFI
+
+#### c_mkl_tick_once
+
+```haskell
+c_mkl_tick_once :: Ptr () -> IO ()
+```
+
+FFI import for the C tick loop (`mkl_tick_once` in `csrc/tick_loop.c`). Takes an opaque pointer to a `CExecutionPlan`. Not yet wired -- requires C execution plan serialization.
+
+## Usage Notes
+
+- `bufferToCBuffer` does not copy data. It hands the existing pointer to C code. The `CBuffer` is valid only as long as the underlying `Buffer` is alive.
+- `cBufferToBuffer` copies data via `peekArray` + `listToBuffer`. It allocates a new buffer on every call.
+- The `Storable` instances use explicit byte offsets to match the C struct layout exactly.

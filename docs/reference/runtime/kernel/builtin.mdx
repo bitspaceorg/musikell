@@ -1,0 +1,62 @@
+---
+title: "Builtin Kernels"
+description: "Index of all builtin kernel modules and the builtinRegistry"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-builtin"
+tags: ["reference", "runtime", "kernel", "builtin"]
+source: "src/Musikell/Runtime/Kernel/Builtin.hs"
+---
+
+## Purpose
+
+Thin re-export module that aggregates all builtin kernel submodules and provides the default `builtinRegistry`. Stateless kernels are pre-registered; stateful kernels must be created via their `mk*` constructors and registered separately during lowering.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin`
+
+## Functions
+
+### `builtinRegistry`
+
+```haskell
+builtinRegistry :: KernelRegistry
+```
+
+Registry pre-loaded with all stateless built-in kernels:
+
+| Kernel                  | KernelId           |
+| ----------------------- | ------------------ |
+| `inputKernel`           | `"input"`          |
+| `outputKernel`          | `"output"`         |
+| `passthruKernel`        | `"passthru"`       |
+| `nullKernel`            | `"null"`           |
+| `gainKernel 1.0`        | `"gain"`           |
+| `mixKernel`             | `"mix"`            |
+| `clipKernel (-1.0) 1.0` | `"clip"`           |
+| `channelMergeKernel`    | `"channel.merge"`  |
+| `monoToStereoKernel`    | `"mono_to_stereo"` |
+
+Stateful kernels (oscillators, delay, filter, dynamics, reverb, noise, envelope, sequencer, crossfade) are NOT included in the default registry. They require IO to initialize their internal state and must be created with their `mk*` constructors then registered via `registerKernel`.
+
+## Re-exported Modules
+
+| Module                                       | Documentation                                  | Description                   |
+| -------------------------------------------- | ---------------------------------------------- | ----------------------------- |
+| `Musikell.Runtime.Kernel.Builtin.IO`         | [kernel/io.mdx](kernel/io.mdx)                 | Input, output, passthru, null |
+| `Musikell.Runtime.Kernel.Builtin.Gain`       | [kernel/gain.mdx](kernel/gain.mdx)             | Amplitude scaling             |
+| `Musikell.Runtime.Kernel.Builtin.Mix`        | [kernel/mix.mdx](kernel/mix.mdx)               | Signal mixing and clipping    |
+| `Musikell.Runtime.Kernel.Builtin.Oscillator` | [kernel/oscillator.mdx](kernel/oscillator.mdx) | PolyBLEP oscillators          |
+| `Musikell.Runtime.Kernel.Builtin.Delay`      | [kernel/delay.mdx](kernel/delay.mdx)           | Delay lines                   |
+| `Musikell.Runtime.Kernel.Builtin.Filter`     | [kernel/filter.mdx](kernel/filter.mdx)         | State-variable filter         |
+| `Musikell.Runtime.Kernel.Builtin.Dynamics`   | [kernel/dynamics.mdx](kernel/dynamics.mdx)     | Compressor, limiter, gate     |
+| `Musikell.Runtime.Kernel.Builtin.Reverb`     | [kernel/reverb.mdx](kernel/reverb.mdx)         | FDN reverb                    |
+| `Musikell.Runtime.Kernel.Builtin.Noise`      | [kernel/noise.mdx](kernel/noise.mdx)           | Noise generators              |
+| `Musikell.Runtime.Kernel.Builtin.Envelope`   | [kernel/envelope.mdx](kernel/envelope.mdx)     | ADSR envelope                 |
+| `Musikell.Runtime.Kernel.Builtin.Channel`    | [kernel/channel.mdx](kernel/channel.mdx)       | Channel manipulation          |
+| `Musikell.Runtime.Kernel.Builtin.Sequencer`  | [kernel/sequencer.mdx](kernel/sequencer.mdx)   | Beat sequencer                |
+| `Musikell.Runtime.Kernel.Builtin.Crossfade`  | [kernel/crossfade.mdx](kernel/crossfade.mdx)   | Route crossfade               |
+
+## Usage Notes
+
+- All builtin kernel modules require `{-# LANGUAGE OverloadedStrings #-}` because `KernelId` uses `Text`.
+- The `Util` submodule (`Musikell.Runtime.Kernel.Builtin.Util`) provides shared helpers `forRange_` (strict loop) and `flushDenormals` (flush subnormal floats to zero) used across multiple kernels.

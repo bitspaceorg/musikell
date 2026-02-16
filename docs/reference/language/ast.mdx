@@ -1,0 +1,376 @@
+---
+title: "Musikell.Language.AST"
+description: "Complete abstract syntax tree types for the Musikell DSL"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-language-ast"
+tags: ["reference", "language"]
+source: "src/Musikell/Language/AST.hs"
+---
+
+Complete type definitions for the Musikell abstract syntax tree. Every construct in the `.mkl` DSL -- imports, bindings, groups, parameter sets, node expressions, method chains, feedback references -- has a corresponding AST type defined here.
+
+## Purpose
+
+The AST module is a pure data definition with no logic. The parser (`Musikell.Language.Parser`) produces values of these types; the lowering pass (`Musikell.Language.Lowering`) consumes them to build the audio graph. All types derive `Eq` and `Show` for testing.
+
+## Language extensions
+
+| Extension       | Reason                           |
+| --------------- | -------------------------------- |
+| `DeriveFunctor` | Derive `Functor` for `Located a` |
+
+## Dependencies
+
+| Package | Import             |
+| ------- | ------------------ |
+| `text`  | `Data.Text (Text)` |
+
+## Types
+
+### Source Location
+
+#### SourcePos
+
+Source position for error reporting.
+
+```haskell
+data SourcePos = SourcePos
+  { posFile   :: !FilePath
+  , posLine   :: !Int
+  , posColumn :: !Int
+  } deriving (Eq, Show)
+```
+
+| Field       | Type       | Description             |
+| ----------- | ---------- | ----------------------- |
+| `posFile`   | `FilePath` | Source file path        |
+| `posLine`   | `Int`      | Line number (1-based)   |
+| `posColumn` | `Int`      | Column number (1-based) |
+
+#### Located
+
+A value annotated with its source location.
+
+```haskell
+data Located a = Located
+  { locPos   :: !SourcePos
+  , locValue :: !a
+  } deriving (Eq, Show, Functor)
+```
+
+| Field      | Type        | Description                                 |
+| ---------- | ----------- | ------------------------------------------- |
+| `locPos`   | `SourcePos` | Source position where this value was parsed |
+| `locValue` | `a`         | The wrapped value                           |
+
+Derives `Functor` so you can `fmap` over the wrapped value while preserving location.
+
+#### Identifier
+
+```haskell
+type Identifier = Text
+```
+
+A variable or field name.
+
+### Qualified Names
+
+#### QualName
+
+Dot-qualified name: `group.member`, `NS.Kernel`.
+
+```haskell
+newtype QualName = QualName { qualParts :: [Identifier] }
+  deriving (Eq, Show)
+```
+
+| Field       | Type           | Description                         |
+| ----------- | -------------- | ----------------------------------- |
+| `qualParts` | `[Identifier]` | The dot-separated parts of the name |
+
+### Program Structure
+
+#### Program
+
+A complete `.mkl` program.
+
+```haskell
+data Program = Program
+  { programImports    :: ![Located Import]
+  , programStatements :: ![Located Statement]
+  } deriving (Eq, Show)
+```
+
+| Field               | Type                  | Description                                |
+| ------------------- | --------------------- | ------------------------------------------ |
+| `programImports`    | `[Located Import]`    | Import declarations at the top of the file |
+| `programStatements` | `[Located Statement]` | All statements in program order            |
+
+#### Import
+
+Import declaration variants.
+
+```haskell
+data Import
+  = ImportAll  !FilePath
+  | ImportNames !FilePath ![Identifier]
+  | ImportAs  !FilePath !Identifier
+  deriving (Eq, Show)
+```
+
+| Constructor   | Fields                   | Syntax                  | Description                     |
+| ------------- | ------------------------ | ----------------------- | ------------------------------- |
+| `ImportAll`   | `FilePath`               | `use "file.mkl"`        | Import all bindings from a file |
+| `ImportNames` | `FilePath, [Identifier]` | `use "file.mkl" (X, Y)` | Import selected names           |
+| `ImportAs`    | `FilePath, Identifier`   | `use "file.mkl" as NS`  | Import with a namespace alias   |
+
+#### Statement
+
+A statement in the program body.
+
+```haskell
+data Statement
+  = Binding  !BindingPrefix !Identifier !Expr
+  | IOStmt   !IODirection !Identifier !(Maybe Identifier)
+  | GroupDef !Identifier ![Located Statement]
+  | ParamSet !Identifier ![ParamPair]
+  | CommentStmt !Text
+  deriving (Eq, Show)
+```
+
+| Constructor   | Fields                                      | Syntax                                         | Description                                       |
+| ------------- | ------------------------------------------- | ---------------------------------------------- | ------------------------------------------------- |
+| `Binding`     | `BindingPrefix, Identifier, Expr`           | `[!\|#] ident = expr`                          | Variable binding with optional bypass/mute prefix |
+| `IOStmt`      | `IODirection, Identifier, Maybe Identifier` | `ident <<< [channel]` or `ident >>> [channel]` | I/O stream declaration                            |
+| `GroupDef`    | `Identifier, [Located Statement]`           | `group ident { stmts }`                        | Named group of statements                         |
+| `ParamSet`    | `Identifier, [ParamPair]`                   | `IDENT => key=val, ...`                        | Parameter set definition                          |
+| `CommentStmt` | `Text`                                      | `-- comment`                                   | Comment (preserved in AST)                        |
+
+#### BindingPrefix
+
+Binding prefix for bypass/mute control.
+
+```haskell
+data BindingPrefix
+  = PrefixNone
+  | PrefixBypass
+  | PrefixMute
+  deriving (Eq, Show)
+```
+
+| Constructor    | Syntax | Description                                                     |
+| -------------- | ------ | --------------------------------------------------------------- |
+| `PrefixNone`   | (none) | Normal binding                                                  |
+| `PrefixBypass` | `!`    | Node is bypassed at runtime (signal passes through unprocessed) |
+| `PrefixMute`   | `#`    | Node is muted at runtime (output is silence)                    |
+
+#### IODirection
+
+I/O direction for stream declarations.
+
+```haskell
+data IODirection
+  = StreamIn
+  | StreamOut
+  deriving (Eq, Show)
+```
+
+| Constructor | Syntax | Description                      |
+| ----------- | ------ | -------------------------------- |
+| `StreamIn`  | `<<<`  | Input stream (reads from stdin)  |
+| `StreamOut` | `>>>`  | Output stream (writes to stdout) |
+
+#### ParamPair
+
+A key=value pair in a parameter set.
+
+```haskell
+data ParamPair = ParamPair
+  { ppKey   :: !Identifier
+  , ppValue :: !(Located Expr)
+  } deriving (Eq, Show)
+```
+
+| Field     | Type           | Description                                     |
+| --------- | -------------- | ----------------------------------------------- |
+| `ppKey`   | `Identifier`   | Parameter name                                  |
+| `ppValue` | `Located Expr` | Parameter value expression with source location |
+
+### Expressions
+
+#### Expr
+
+An expression in the Musikell DSL.
+
+```haskell
+data Expr
+  = ExprLit      !Literal
+  | ExprVar      !QualName
+  | ExprFeedback !QualName
+  | ExprNode     !NodeExpr
+  | ExprBinOp    !BinOp !(Located Expr) !(Located Expr)
+  | ExprUnaryNeg !(Located Expr)
+  | ExprParen    !(Located Expr)
+  | ExprCall     !Identifier ![Located Expr]
+  | ExprDotAccess !(Located Expr) !Identifier
+  deriving (Eq, Show)
+```
+
+| Constructor     | Fields                              | Syntax                            | Description                         |
+| --------------- | ----------------------------------- | --------------------------------- | ----------------------------------- |
+| `ExprLit`       | `Literal`                           | `440`, `"text"`, `true`           | Literal value                       |
+| `ExprVar`       | `QualName`                          | `x`, `group.member`               | Variable or qualified reference     |
+| `ExprFeedback`  | `QualName`                          | `~node`                           | Feedback reference (previous block) |
+| `ExprNode`      | `NodeExpr`                          | `Creational.Oscillator(freq=440)` | Node creation expression            |
+| `ExprBinOp`     | `BinOp, Located Expr, Located Expr` | `a + b`, `x * 0.5`                | Binary arithmetic operation         |
+| `ExprUnaryNeg`  | `Located Expr`                      | `-x`                              | Unary negation                      |
+| `ExprParen`     | `Located Expr`                      | `(expr)`                          | Parenthesized expression            |
+| `ExprCall`      | `Identifier, [Located Expr]`        | `min(a, b)`                       | Function call                       |
+| `ExprDotAccess` | `Located Expr, Identifier`          | `stereo.L`                        | Dot field access                    |
+
+#### BinOp
+
+Binary operators with precedence levels (0 for `+`/`-`, 1 for `*`/`/`).
+
+```haskell
+data BinOp
+  = OpAdd
+  | OpSub
+  | OpMul
+  | OpDiv
+  deriving (Eq, Show)
+```
+
+| Constructor | Syntax | Precedence | Description    |
+| ----------- | ------ | ---------- | -------------- |
+| `OpAdd`     | `+`    | 0          | Addition       |
+| `OpSub`     | `-`    | 0          | Subtraction    |
+| `OpMul`     | `*`    | 1          | Multiplication |
+| `OpDiv`     | `/`    | 1          | Division       |
+
+#### Literal
+
+Literal values in expressions.
+
+```haskell
+data Literal
+  = LitNumber  !Double
+  | LitString  !Text
+  | LitBool    !Bool
+  | LitIdent   !Identifier
+  | LitPattern !Text
+  deriving (Eq, Show)
+```
+
+| Constructor  | Fields       | Syntax          | Description                                             |
+| ------------ | ------------ | --------------- | ------------------------------------------------------- |
+| `LitNumber`  | `Double`     | `440`, `3.14`   | Numeric literal                                         |
+| `LitString`  | `Text`       | `"hello"`       | String literal                                          |
+| `LitBool`    | `Bool`       | `true`, `false` | Boolean literal                                         |
+| `LitIdent`   | `Identifier` | `sine`, `white` | Bare identifier in value position (e.g. waveform names) |
+| `LitPattern` | `Text`       | `x_o_x_o_`      | Beat pattern (characters: `x`, `X`, `o`, `O`, `_`)      |
+
+### Node Expressions
+
+#### NodeType
+
+Node type categories. Derives `Enum` and `Bounded`.
+
+```haskell
+data NodeType
+  = Creational
+  | Manipulative
+  | Conditional
+  deriving (Eq, Show, Enum, Bounded)
+```
+
+| Constructor    | Description                                       |
+| -------------- | ------------------------------------------------- |
+| `Creational`   | Generates signal (oscillators, noise, sequencers) |
+| `Manipulative` | Transforms signal (gain, filter, delay, reverb)   |
+| `Conditional`  | Conditional routing (switch, crossfade)           |
+
+#### InputRef
+
+An input reference in the `<inputs>` list of a node expression.
+
+```haskell
+data InputRef
+  = NormalRef   !QualName
+  | FeedbackRef !QualName
+  deriving (Eq, Show)
+```
+
+| Constructor   | Fields     | Syntax | Description                                |
+| ------------- | ---------- | ------ | ------------------------------------------ |
+| `NormalRef`   | `QualName` | `src`  | Regular input from a named node            |
+| `FeedbackRef` | `QualName` | `~src` | Feedback input (reads from previous block) |
+
+#### NodeExpr
+
+A node creation expression. This is the central construct of the DSL.
+
+```haskell
+data NodeExpr = NodeExpr
+  { neType           :: !NodeType
+  , neInputs         :: ![InputRef]
+  , neOverrides      :: ![Located Expr]
+  , neKernel         :: !QualName
+  , neKernelTypeParam :: !(Maybe Identifier)
+  , neArgs           :: ![NamedArg]
+  , neMethods        :: ![MethodCall]
+  } deriving (Eq, Show)
+```
+
+| Field               | Type               | Syntax                                        | Description                                    |
+| ------------------- | ------------------ | --------------------------------------------- | ---------------------------------------------- |
+| `neType`            | `NodeType`         | `Creational` / `Manipulative` / `Conditional` | Node category keyword                          |
+| `neInputs`          | `[InputRef]`       | `<a, b, ~c>`                                  | Input references (normal and feedback)         |
+| `neOverrides`       | `[Located Expr]`   | `(AMPLITUDE * 0.9)`                           | Override expressions between inputs and kernel |
+| `neKernel`          | `QualName`         | `.Oscillator`, `.PremVerb.Hall`               | Kernel name (dot-prefixed, possibly qualified) |
+| `neKernelTypeParam` | `Maybe Identifier` | `<AMPLITUDE>`                                 | Optional type parameter on the kernel          |
+| `neArgs`            | `[NamedArg]`       | `(freq=440, waveform=sine)`                   | Named arguments to the kernel                  |
+| `neMethods`         | `[MethodCall]`     | `.switch<F>().case()`                         | Method chain calls after the kernel            |
+
+#### NamedArg
+
+A named argument in a kernel or method call.
+
+```haskell
+data NamedArg = NamedArg
+  { naName  :: !Identifier
+  , naValue :: !(Located Expr)
+  } deriving (Eq, Show)
+```
+
+| Field     | Type           | Description               |
+| --------- | -------------- | ------------------------- |
+| `naName`  | `Identifier`   | Argument name             |
+| `naValue` | `Located Expr` | Argument value expression |
+
+#### MethodCall
+
+A method call in a chain.
+
+```haskell
+data MethodCall = MethodCall
+  { mcName      :: !Identifier
+  , mcTypeParam :: !(Maybe Identifier)
+  , mcArgs      :: ![NamedArg]
+  } deriving (Eq, Show)
+```
+
+| Field         | Type               | Syntax                      | Description             |
+| ------------- | ------------------ | --------------------------- | ----------------------- |
+| `mcName`      | `Identifier`       | `.switch`, `.case`, `.mute` | Method name             |
+| `mcTypeParam` | `Maybe Identifier` | `<AMPLITUDE>`               | Optional type parameter |
+| `mcArgs`      | `[NamedArg]`       | `(key=val)`                 | Named arguments         |
+
+## Usage Notes
+
+- All record fields are strict (`!`) to avoid space leaks during parsing and lowering.
+- `Located` wraps most AST nodes so error messages can reference source positions.
+- `QualName` with a single part is an unqualified name; multiple parts represent dot-separated paths.
+- `CommentStmt` preserves comments in the AST. The lowering pass treats them as no-ops.
+- `LitIdent` is distinct from `ExprVar` -- it represents a bare word in value position (like `sine` in `waveform=sine`) that is not a variable reference.

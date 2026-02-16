@@ -1,0 +1,206 @@
+---
+title: "Effects"
+description: "Using filters, reverb, delay, and dynamics processing in Musikell"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "guide/effects"
+tags: ["guide", "effects", "filter", "reverb", "delay", "dynamics"]
+---
+
+# Effects
+
+## What You'll Learn
+
+- How to use the state-variable filter with all four modes
+- How to add delay with feedback
+- How to apply reverb using the feedback delay network
+- How to use dynamics processing: compressor, limiter, and gate
+
+## Prerequisites
+
+- [Nodes](nodes.mdx) -- understanding of Manipulative nodes
+- [Routing](routing.mdx) -- understanding of signal flow and feedback
+
+## Filter
+
+The `Filter` kernel implements a state-variable filter (SVF) with four modes. It processes audio in a single pass and can smoothly switch between modes.
+
+### Modes
+
+| Mode      | Variant | Description                                     |
+| --------- | ------- | ----------------------------------------------- |
+| Low-pass  | `LP`    | Passes frequencies below the cutoff             |
+| High-pass | `HP`    | Passes frequencies above the cutoff             |
+| Band-pass | `BP`    | Passes a band of frequencies around the cutoff  |
+| Notch     | `Notch` | Rejects a band of frequencies around the cutoff |
+
+### Parameters
+
+| Parameter   | Type  | Range          | Description                                           |
+| ----------- | ----- | -------------- | ----------------------------------------------------- |
+| `cutoff`    | Float | 20 -- 20000 Hz | The filter's cutoff frequency                         |
+| `resonance` | Float | 0.0 -- 1.0     | Resonance / Q factor (0 = none, 1 = self-oscillation) |
+
+### Examples
+
+```mkl
+-- Remove low-frequency rumble from a microphone
+hp = Manipulative<mic>.Filter<HP>(cutoff=80, resonance=0.5)
+
+-- Warm low-pass on a synth
+lp = Manipulative<synth>.Filter<LP>(cutoff=2000, resonance=0.6)
+
+-- Isolate a frequency band
+bp = Manipulative<input>.Filter<BP>(cutoff=1000, resonance=0.8)
+
+-- Remove a specific frequency (e.g., 50 Hz hum)
+notch = Manipulative<input>.Filter<Notch>(cutoff=50, resonance=0.9)
+```
+
+## Delay
+
+The `Delay` kernel implements an interpolated delay line. Combined with feedback edges, it creates echo and repeating delay effects.
+
+### Parameters
+
+| Parameter  | Type  | Range      | Description                                          |
+| ---------- | ----- | ---------- | ---------------------------------------------------- |
+| `ms`       | Float | 0 -- 5000  | Delay time in milliseconds                           |
+| `feedback` | Float | 0.0 -- 1.0 | Amount of output fed back to input (0 = single echo) |
+
+### Examples
+
+```mkl
+-- Simple slapback delay (single echo)
+slap = Manipulative<vocal>.Delay(ms=80)
+
+-- Repeating delay with feedback
+echo = Manipulative<vocal, ~echo>.Delay(ms=250, feedback=0.3)
+
+-- Long ambient delay
+ambient = Manipulative<guitar, ~ambient>.Delay(ms=500, feedback=0.6)
+```
+
+The `~echo` and `~ambient` feedback references create the repeating tail. Without a feedback edge, the delay produces a single echo.
+
+### How Interpolation Works
+
+When the delay time does not land exactly on a sample boundary, the kernel uses linear interpolation between adjacent samples. This allows smooth, artifact-free delay times at any millisecond value.
+
+## Reverb
+
+The `Reverb` kernel implements a feedback delay network (FDN) that simulates the reflections of sound in a physical space.
+
+### Parameters
+
+| Parameter | Type  | Range       | Description                                      |
+| --------- | ----- | ----------- | ------------------------------------------------ |
+| `room`    | Float | 0.0 -- 1.0  | Room size (0 = small closet, 1 = cathedral)      |
+| `decay`   | Float | 0.1 -- 10.0 | Reverb tail length in seconds                    |
+| `damping` | Float | 0.0 -- 1.0  | High-frequency absorption (0 = bright, 1 = dark) |
+| `mix`     | Float | 0.0 -- 1.0  | Wet/dry balance (0 = fully dry, 1 = fully wet)   |
+
+### Examples
+
+```mkl
+-- Subtle room ambience
+room = Manipulative<vocal>.Reverb(room=0.3, decay=0.8, damping=0.4, mix=0.15)
+
+-- Medium hall
+hall = Manipulative<piano>.Reverb(room=0.6, decay=1.5, damping=0.5, mix=0.25)
+
+-- Large cathedral
+cathedral = Manipulative<choir>.Reverb(room=0.9, decay=3.0, damping=0.3, mix=0.4)
+```
+
+### Parallel Reverb
+
+For more control, use a fully wet reverb in a parallel path and mix it yourself:
+
+```mkl
+dry = Manipulative<vocal>.Gain(level=0.75)
+wet = Manipulative<vocal>.Reverb(room=0.6, decay=1.5, damping=0.5, mix=1.0)
+wet_level = Manipulative<wet>.Gain(level=0.25)
+mix = Manipulative<dry, wet_level>.Mix()
+```
+
+This lets you EQ or compress the reverb tail independently.
+
+## Dynamics
+
+The `Dynamics` kernel provides three modes for controlling the dynamic range of audio.
+
+### Compressor
+
+Reduces the volume of loud signals above a threshold.
+
+| Parameter   | Type  | Range         | Description                          |
+| ----------- | ----- | ------------- | ------------------------------------ |
+| `threshold` | Float | -60 -- 0 dB   | Level above which compression begins |
+| `ratio`     | Float | 1.0 -- 100.0  | Compression ratio (e.g., 4 = 4:1)    |
+| `attack`    | Float | 0.1 -- 100 ms | How fast compression engages         |
+| `release`   | Float | 10 -- 1000 ms | How fast compression releases        |
+| `makeup`    | Float | 0 -- 24 dB    | Gain applied after compression       |
+
+```mkl
+comp = Manipulative<vocal>.Dynamics<Compressor>(
+    threshold=-18, ratio=4, attack=5, release=50, makeup=6
+)
+```
+
+### Limiter
+
+A limiter is a compressor with an infinite ratio. It prevents the signal from exceeding a ceiling.
+
+| Parameter | Type  | Range       | Description          |
+| --------- | ----- | ----------- | -------------------- |
+| `ceiling` | Float | -12 -- 0 dB | Maximum output level |
+| `release` | Float | 1 -- 100 ms | Release time         |
+
+```mkl
+limited = Manipulative<master>.Dynamics<Limiter>(ceiling=-0.3, release=10)
+```
+
+### Gate
+
+A gate silences audio below a threshold. Useful for tightening drum transients or removing bleed.
+
+| Parameter   | Type  | Range        | Description                         |
+| ----------- | ----- | ------------ | ----------------------------------- |
+| `threshold` | Float | -60 -- 0 dB  | Level below which audio is silenced |
+| `attack`    | Float | 0.1 -- 10 ms | How fast the gate opens             |
+| `hold`      | Float | 1 -- 500 ms  | Minimum time the gate stays open    |
+| `release`   | Float | 5 -- 500 ms  | How fast the gate closes            |
+
+```mkl
+gated = Manipulative<drums>.Dynamics<Gate>(
+    threshold=-30, attack=0.5, hold=50, release=100
+)
+```
+
+## Chaining Effects
+
+Effects can be chained by piping the output of one node into the next:
+
+```mkl
+input mic
+
+filtered = Manipulative<mic>.Filter<HP>(cutoff=80, resonance=0.5)
+compressed = Manipulative<filtered>.Dynamics<Compressor>(
+    threshold=-18, ratio=4, attack=5, release=50, makeup=6
+)
+reverbed = Manipulative<compressed>.Reverb(room=0.6, decay=1.5, damping=0.4, mix=0.25)
+
+output reverbed
+```
+
+The order matters. A common vocal chain is: high-pass filter (remove rumble) then compressor (even out dynamics) then reverb (add space).
+
+## Summary
+
+Musikell provides four core effect kernels. The SVF Filter has four modes (LP, HP, BP, Notch). The Delay kernel supports interpolated delay with feedback. The Reverb kernel uses a feedback delay network with room, decay, damping, and mix controls. The Dynamics kernel offers compressor, limiter, and gate modes for dynamic range control.
+
+## Next Steps
+
+- [Patterns](patterns.mdx) -- beat sequencing and rhythmic patterns
+- [Conditional](conditional.mdx) -- bypass, mute, and signal routing

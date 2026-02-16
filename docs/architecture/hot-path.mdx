@@ -1,0 +1,124 @@
+---
+title: "Hot Path"
+description: "Zero-allocation hot path design: ResolvedPlan rationale, buffer strategy, and the road to a C tick loop"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "architecture/hot-path"
+tags: ["architecture", "performance", "hot-path", "zero-alloc"]
+---
+
+## The Problem
+
+Audio processing requires deterministic, low-latency execution. At 48 kHz sample rate with a 256-sample block size, the runtime has roughly 5.3 milliseconds to process each block. Any heap allocation in the hot path risks triggering a GC pause, which manifests as an audible glitch (click, pop, or dropout). The goal is to push all allocation and lookup work into the initialization phase so the per-block execution path does zero allocation.
+
+## ResolvedPlan Design
+
+The `ResolvedPlan` (defined in `Musikell.Core.ResolvedPlan`) is the key optimization that separates setup-time work from runtime work.
+
+### Setup phase (called once)
+
+`buildResolvedPlan` takes the `ExecutionPlan`, `Graph`, `KernelRegistry`, and `BufferPool` and resolves everything up front:
+
+1. For each node in topological order, look up the `NodeSpec` in the graph.
+2. Look up the `KernelSpec` in the registry by `KernelId`.
+3. Resolve input buffers: follow each incoming edge to the source node's output buffer in the `BufferPool`.
+4. Resolve output buffers: look up the node's own output port buffers in the pool.
+5. Build a closure: `kernelExecute spec inputs outputs` is partially applied into an `IO ()` thunk stored in `rnExecute`.
+
+All resolved nodes are packed into a flat `Vector ResolvedNode`.
+
+### Runtime phase (called every block)
+
+```haskell
+executeResolvedBlock :: ResolvedPlan -> IO ()
+executeResolvedBlock (ResolvedPlan nodes) = V.mapM_ rnExecute nodes
+{-# INLINE executeResolvedBlock #-}
+```
+
+This is the entire hot path: a single `V.mapM_` over a contiguous vector. No `Map` lookups. No `IntMap` lookups. No list construction. Each `rnExecute` closure captures its kernel function and buffer pointers directly — calling it is a single indirect function call with no intervening allocation.
+
+After the block, `swapFeedbackBuffers` exchanges the read/write buffers for feedback edges (implementing one-block delay), and the block counter is incremented:
+
+```haskell
+executeResolvedBlockWithState :: ResolvedPlan -> SchedulerState -> IO SchedulerState
+executeResolvedBlockWithState rplan state = do
+  executeResolvedBlock rplan
+  swapFeedbackBuffers (statePool state)
+  pure $! state { stateCurrentBlock = stateCurrentBlock state + 1 }
+```
+
+## Buffer Strategy
+
+### Pre-allocated IOVector Float
+
+All audio buffers are `IOVector Float` (from `Data.Vector.Storable.Mutable`) allocated once by `allocatePool` at pipeline startup. The storable representation means:
+
+- Contiguous memory layout compatible with C FFI
+- No per-element boxing
+- `MV.copy` compiles to `memcpy` for buffer-to-buffer transfers
+
+### BufferPool keying
+
+The `BufferPool` is an `IntMap` keyed by `nodeId * 1000 + portId`. This supports up to 1000 ports per node, which is far more than any realistic audio graph requires. Buffer lookup via `getPoolBuffer` returns `Maybe Buffer`.
+
+### Zero-copy output
+
+`unsafeBufferToBytes` (in `Musikell.IO.StreamOutput`) converts an `IOVector Float` to a `ByteString` without copying. It freezes the mutable vector and reinterprets the underlying memory as bytes. This is safe because the output buffer is not written to again until the next block.
+
+### Input path
+
+`bytesIntoBuffer` (in `Musikell.IO.StreamInput`) copies raw PCM bytes from a `ByteString` into the input node's output buffer in the pool. This is the one mandatory copy per block on the input side — the `ByteString` from stdin must be moved into the storable vector.
+
+## Legacy vs Resolved Path
+
+The codebase maintains two execution paths:
+
+|                       | Legacy (`executeBlock`)                          | Resolved (`executeResolvedBlockWithState`)              |
+| --------------------- | ------------------------------------------------ | ------------------------------------------------------- |
+| **Lookups per block** | `Map` for kernel, `IntMap` for buffers, per node | Zero                                                    |
+| **List construction** | Builds `[Buffer]` per node per block             | Pre-built closures                                      |
+| **Use case**          | Tests, debugging                                 | Production streaming                                    |
+| **Location**          | `Musikell.Core.Scheduler.executeBlock`           | `Musikell.Core.Scheduler.executeResolvedBlockWithState` |
+
+The legacy path is intentionally kept because it exercises the `Graph`, `ExecutionPlan`, and `KernelRegistry` APIs directly, making it valuable for unit testing individual components without requiring a full `ResolvedPlan` setup.
+
+## Known Bottlenecks
+
+### Kernel signature allocates lists per call
+
+The current kernel execution signature is:
+
+```haskell
+kernelExecute :: KernelSpec -> [Buffer] -> [Buffer] -> IO ()
+```
+
+The `[Buffer]` arguments are Haskell lists, which means each call constructs cons cells on the heap. For kernels with fixed arity (the common case), this could be replaced with unboxed tuples or a flat array passed by pointer.
+
+### BufferPool uses IntMap (O(log n))
+
+`IntMap` lookup is O(log n) in the number of entries. For a graph with hundreds of nodes, this is measurable. The pool should be replaced with a flat `Vector (IOVector Float)` indexed by a dense integer ID, giving O(1) lookup with better cache behavior.
+
+### Graph edge lookup is O(E) per node
+
+`getIncomingEdges` scans the full edge list to find edges targeting a given node. This is O(E) where E is the total number of edges in the graph. An adjacency index (mapping each node to its incoming edge list) would reduce this to O(degree).
+
+Note: These bottlenecks affect the setup phase and the legacy execution path. The resolved path avoids them at runtime by doing all lookups at init time.
+
+## C Tick Loop (Future)
+
+The file `csrc/tick_loop.c` contains a C implementation of the block execution loop, imported via FFI:
+
+```c
+// csrc/tick_loop.h
+int32_t mkl_tick_once(MklTickPlan* plan);
+```
+
+The plan is to serialize the `ResolvedPlan` into C-compatible structs (`MklTickPlan`, `MklTickNode`) and execute the entire block from C, eliminating Haskell runtime overhead (thunk evaluation, GC safepoints) from the hot path entirely.
+
+This is imported but not yet wired. The remaining work is:
+
+1. Serialize `ResolvedPlan` into `MklTickPlan` (flat C arrays of node descriptors, buffer pointers, and kernel function pointers).
+2. Call `mkl_tick_once` from `executeResolvedBlockWithState` instead of `V.mapM_`.
+3. Ensure all kernel functions are C-callable (either native C kernels from `csrc/kernels.c` or Haskell functions exported via `foreign export`).
+
+A `runPipelineNative` variant in `ConduitPipeline` is planned to use this path once serialization is complete.

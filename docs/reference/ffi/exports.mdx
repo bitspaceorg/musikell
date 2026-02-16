@@ -1,0 +1,126 @@
+---
+title: "Musikell.FFI.Exports"
+description: "Foreign-exported C symbols for runtime lifecycle and control"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-ffi-exports"
+tags: ["reference", "ffi"]
+source: "src/Musikell/FFI/Exports.hs"
+---
+
+Foreign-exported C symbols for runtime initialisation, shutdown, version queries, and block size control. These functions are exported via `foreign export ccall` and are callable from any language with C FFI.
+
+## Language extensions
+
+| Extension                  | Reason                              |
+| -------------------------- | ----------------------------------- |
+| `ForeignFunctionInterface` | `foreign export ccall` declarations |
+
+## Dependencies
+
+| Package  | Import                                                                    |
+| -------- | ------------------------------------------------------------------------- |
+| `base`   | `Foreign.C.Types`, `Foreign.C.String`, `Foreign.Ptr`, `Foreign.StablePtr` |
+| `base`   | `Data.IORef`, `System.IO.Unsafe (unsafePerformIO)`                        |
+| musikell | `Musikell.Core.Types (BlockSize, defaultBlockSize)`                       |
+
+## Internal state
+
+### globalBlockSize
+
+```haskell
+{-# NOINLINE globalBlockSize #-}
+globalBlockSize :: IORef BlockSize
+```
+
+Global mutable state for the runtime block size. Initialised to `defaultBlockSize` (256) via `unsafePerformIO`. The `NOINLINE` pragma prevents GHC from inlining the `IORef` allocation, ensuring a single global reference.
+
+## Exported C symbols
+
+All functions below are exported with `foreign export ccall`.
+
+### Initialisation
+
+#### musikell_init
+
+```haskell
+musikell_init :: IO CInt
+```
+
+Initialise the Musikell runtime. Resets `globalBlockSize` to `defaultBlockSize`. Returns `0` on success. Future: will initialise backend and allocate buffers.
+
+#### musikell_shutdown
+
+```haskell
+musikell_shutdown :: IO CInt
+```
+
+Shut down the Musikell runtime. Currently a no-op that returns `0`. Future: will release resources and shut down the backend.
+
+### Version information
+
+#### musikell_abi_version
+
+```haskell
+musikell_abi_version :: IO CUInt
+```
+
+Returns the ABI version (`1`). Used by backends to verify compatibility before proceeding.
+
+#### musikell_version_string
+
+```haskell
+musikell_version_string :: IO CString
+```
+
+Returns a null-terminated version string (`"0.1.0"`). Allocated via `newCString` -- caller must not free the returned pointer.
+
+### Runtime control
+
+#### musikell_set_block_size
+
+```haskell
+musikell_set_block_size :: CUInt -> IO CInt
+```
+
+Set the global block size. Returns `0` on success, `-1` if the value is invalid.
+
+| Constraint    | Description              |
+| ------------- | ------------------------ |
+| `size <= 0`   | Returns `-1` (invalid)   |
+| `size > 8192` | Returns `-1` (too large) |
+
+#### musikell_get_block_size
+
+```haskell
+musikell_get_block_size :: IO CUInt
+```
+
+Get the current block size. Reads from `globalBlockSize` and converts to `CUInt`.
+
+## Usage from C
+
+```c
+#include <stdint.h>
+
+extern int32_t  musikell_init(void);
+extern int32_t  musikell_shutdown(void);
+extern uint32_t musikell_abi_version(void);
+extern const char* musikell_version_string(void);
+extern int32_t  musikell_set_block_size(uint32_t size);
+extern uint32_t musikell_get_block_size(void);
+
+int main(void) {
+    musikell_init();
+    musikell_set_block_size(512);
+    // ... run audio processing ...
+    musikell_shutdown();
+    return 0;
+}
+```
+
+## Usage Notes
+
+- The `musikell_version_string` result is allocated by GHC's RTS. The caller must not free it.
+- `musikell_init` must be called before any other runtime function.
+- Block size changes take effect on the next pipeline run, not mid-stream.

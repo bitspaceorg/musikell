@@ -1,0 +1,96 @@
+---
+title: "Delay Kernels"
+description: "Integer-sample and fractional interpolated delay lines"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-delay"
+tags: ["reference", "runtime", "kernel", "delay"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Delay.hs"
+---
+
+## Purpose
+
+Delay line kernels supporting both integer-sample and fractional-sample (interpolated) delay times. Fractional delay enables chorus, flanger, and pitch-shifting effects. Both use circular buffers internally.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Delay`
+
+---
+
+## `mkDelay`
+
+**KernelId:** `"delay"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** Yes (circular buffer, write position IORef)
+
+```haskell
+mkDelay :: Int -> BlockSize -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter      | Type        | Description                                                     |
+| -------------- | ----------- | --------------------------------------------------------------- |
+| `delaySamples` | `Int`       | Delay length in samples                                         |
+| `_blockSize`   | `BlockSize` | Block size (currently unused, reserved for future optimization) |
+
+### Behavior
+
+Per-sample processing using a circular buffer of size `delaySamples`:
+
+1. Read the delayed sample from the current write position
+2. Write the current input sample at the write position
+3. Output the delayed sample
+4. Advance write position with modular wrap
+
+```
+delayed = delayBuf[writePos]
+delayBuf[writePos] = input[i]
+output[i] = delayed
+writePos = (writePos + 1) mod delaySamples
+```
+
+---
+
+## `mkDelayInterpolated`
+
+**KernelId:** `"delay.interp"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** Yes (circular buffer, write position IORef)
+
+```haskell
+mkDelayInterpolated :: Double -> Int -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter         | Type     | Description                          |
+| ----------------- | -------- | ------------------------------------ |
+| `delayTime`       | `Double` | Delay time in fractional samples     |
+| `maxDelaySamples` | `Int`    | Maximum delay buffer size in samples |
+
+### Behavior
+
+Linear interpolation between two adjacent samples in the circular buffer for sub-sample accuracy:
+
+1. Write current input at the write position
+2. Compute fractional read position: `readPos = writePos - delayTime`
+3. Decompose into integer index and fractional part
+4. Linearly interpolate between samples at `floor(readPos)` and `floor(readPos) + 1`
+
+```
+output[i] = sample[r0] * (1 - frac) + sample[r1] * frac
+```
+
+Read positions wrap using double-modulo to handle negative indices correctly.
+
+## Example
+
+```mkl
+input -> delay(4410) -> mix -> output
+input -> delay.interp(100.5) -> output
+```
+
+## Usage Notes
+
+- Both kernels are stateful and must be created via their `mk*` constructors. They are NOT included in `builtinRegistry`.
+- The circular buffer is allocated as a mutable storable vector (`MV.replicate`) initialized to 0.0.
+- To convert delay time in milliseconds to samples: `delaySamples = round(delayMs * sampleRate / 1000)`.
+- For `mkDelayInterpolated`, `delayTime` is in fractional samples, not milliseconds. Caller must convert.

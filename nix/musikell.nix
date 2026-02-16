@@ -3,18 +3,42 @@
     perSystem =
         {
             pkgs,
+            self',
             musikell,
             shell-config,
+            projectRoot,
             ...
         }:
         let
-            musikell-package = shell-config.ghcpkgs.callCabal2nix musikell.name inputs.self { };
+            # Include all files (untracked, etc.) — plain path can exclude them in git repos
+            src = builtins.path {
+                path = projectRoot;
+                name = "musikell-src";
+                filter = path: type: true;
+            };
+            musikell-package = shell-config.ghcpkgs.callCabal2nix musikell.name src { };
+            musikell-with-tests = musikell-package.overrideAttrs (old: {
+                configureFlags = (old.configureFlags or [ ]) ++ [ "--enable-tests" ];
+                doCheck = true;
+            });
         in
         {
-            packages.default = musikell-package;
+            packages.default = musikell-with-tests;
+            packages.contract = pkgs.runCommand "musikell-contract" { } ''
+                mkdir -p $out/include
+                cp ${../src/Musikell/FFI/Contract.h} $out/include/Contract.h
+            '';
+            packages.dev = pkgs.runCommand "dev" { } ''
+                ls ${self'.checks.dev-pre-commit} > /dev/null
+                cp -rL ${musikell-with-tests}/* $out/
+            '';
+            packages.stg = pkgs.runCommand "stg" { } ''
+                ls ${self'.checks.dev-pre-commit} > /dev/null
+                cp -rL ${self'.checks.stg-coverage}/* $out/
+            '';
             apps.default = {
                 type = "app";
-                program = "${musikell-package}/bin/${musikell.name}";
+                program = "${musikell-with-tests}/bin/${musikell.name}";
             };
         };
 }

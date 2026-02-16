@@ -1,7 +1,9 @@
 import os
+import subprocess
 import frontmatter
 
 REQUIRED_FIELDS = ["title", "description", "slug", "author", "date"]
+
 
 def parse_file(file_path, base_url):
     with open(file_path, "r", encoding="utf-8") as f:
@@ -11,7 +13,7 @@ def parse_file(file_path, base_url):
         if field not in post.metadata or post.metadata.get(field) in [None, ""]:
             raise ValueError(f"Missing required field '{field}' in {file_path}")
 
-    return {
+    doc = {
         "title": post.metadata["title"],
         "description": post.metadata["description"],
         "url": f"{base_url}/{file_path}",
@@ -21,20 +23,30 @@ def parse_file(file_path, base_url):
         "tags": post.metadata.get("tags", []),
     }
 
+    source = post.metadata.get("source")
+    if source:
+        doc["source"] = source
 
-def collect_docs():
+    return doc
+
+
+def collect_docs_recursive(dir_path, base_url, slugs, authors, tags):
+    """Recursively collect docs from a directory.
+
+    For each .mdx file, if a matching directory exists, its children are
+    collected recursively and attached under the 'children' key.
+    """
     docs = []
-    authors = set()
-    tags = set()
-    slugs = set()
-    base_url = "https://gitlab.com/bitspaceorg/claire/musikell/-/raw/main"
 
-    entries = os.listdir("docs")
-    mdx_files = {e[:-4] for e in entries if e.endswith(".mdx")}
-    dirs = {e for e in entries if os.path.isdir(os.path.join("docs", e))}
+    if not os.path.isdir(dir_path):
+        return docs
 
-    for name in sorted(mdx_files):
-        file_path = os.path.join("docs", f"{name}.mdx")
+    entries = os.listdir(dir_path)
+    mdx_files = sorted({e[:-4] for e in entries if e.endswith(".mdx")})
+    dirs = {e for e in entries if os.path.isdir(os.path.join(dir_path, e))}
+
+    for name in mdx_files:
+        file_path = os.path.join(dir_path, f"{name}.mdx")
         doc = parse_file(file_path, base_url)
 
         if doc["slug"] in slugs:
@@ -45,26 +57,38 @@ def collect_docs():
         tags.update(doc["tags"])
 
         if name in dirs:
-            children = []
-            child_dir = os.path.join("docs", name)
-
-            for file in os.listdir(child_dir):
-                if file.endswith(".mdx"):
-                    child_path = os.path.join(child_dir, file)
-                    child_doc = parse_file(child_path, base_url)
-
-                    if child_doc["slug"] in slugs:
-                        raise ValueError(f"Duplicate slug: {child_doc['slug']}")
-                    slugs.add(child_doc["slug"])
-
-                    children.append(child_doc)
-                    authors.add(child_doc["author"])
-                    tags.update(child_doc["tags"])
-
+            child_dir = os.path.join(dir_path, name)
+            children = collect_docs_recursive(child_dir, base_url, slugs, authors, tags)
             if children:
                 doc["children"] = children
 
         docs.append(doc)
 
-    return docs, sorted(authors), sorted(tags)
+    return docs
 
+
+def current_branch():
+    # GitLab CI sets CI_COMMIT_REF_NAME automatically — use it in pipelines
+    # so URLs stay correct after merges / MRs.
+    ci_ref = os.environ.get("CI_COMMIT_REF_NAME")
+    if ci_ref:
+        return ci_ref
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            text=True,
+        ).strip()
+    except Exception:
+        return "main"
+
+
+def collect_docs():
+    slugs = set()
+    authors = set()
+    tags = set()
+    branch = current_branch()
+    base_url = f"https://gitlab.com/bitspaceorg/claire/musikell/-/raw/{branch}"
+
+    docs = collect_docs_recursive("docs", base_url, slugs, authors, tags)
+
+    return docs, sorted(authors), sorted(tags)

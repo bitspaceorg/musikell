@@ -1,0 +1,99 @@
+---
+title: "Filter Kernel"
+description: "State-variable filter (SVF) with lowpass, highpass, bandpass, and notch modes"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-filter"
+tags: ["reference", "runtime", "kernel", "filter", "svf"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Filter.hs"
+---
+
+## Purpose
+
+State-variable filter (SVF) in Chamberlin form. Computes lowpass, highpass, bandpass, and notch outputs simultaneously from the same state variables. Numerically stable and efficient.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Filter`
+
+---
+
+## Types
+
+### `FilterMode`
+
+```haskell
+data FilterMode
+  = Lowpass
+  | Highpass
+  | Bandpass
+  | Notch
+  deriving (Eq, Show)
+```
+
+Selects which output of the SVF topology to tap.
+
+---
+
+## `mkSVFilter`
+
+**KernelId:** `"filter.lowpass"` | `"filter.highpass"` | `"filter.bandpass"` | `"filter.notch"` (depends on mode)
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** Yes (bp and lp state IORef)
+
+```haskell
+mkSVFilter :: FilterMode -> Double -> Double -> SampleRate -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter   | Type         | Description                                                          |
+| ----------- | ------------ | -------------------------------------------------------------------- |
+| `mode`      | `FilterMode` | Filter output mode: Lowpass, Highpass, Bandpass, or Notch            |
+| `cutoff`    | `Double`     | Cutoff frequency in Hz                                               |
+| `resonance` | `Double`     | Resonance (Q factor). Clamped to minimum 0.5 internally. Range: 0.5+ |
+| `sr`        | `SampleRate` | Sample rate                                                          |
+
+### Behavior
+
+Chamberlin SVF topology, processed per-sample:
+
+```
+f = 2 * sin(pi * cutoff / sampleRate)
+Q = 1 / max(0.5, resonance)
+
+hp = input - lp - Q * bp
+bp' = bp + f * hp
+lp' = lp + f * bp'
+```
+
+Output depends on the selected mode:
+
+| Mode       | Output     |
+| ---------- | ---------- |
+| `Lowpass`  | `lp'`      |
+| `Highpass` | `hp`       |
+| `Bandpass` | `bp'`      |
+| `Notch`    | `hp + lp'` |
+
+Both `bp` and `lp` state values are flushed through `flushDenormals` each sample to prevent subnormal float slowdowns in the feedback path.
+
+### Internal: `svfLoop`
+
+```haskell
+svfLoop :: FilterMode -> Float -> Float -> Buffer -> Buffer
+        -> Int -> Float -> Float -> Int -> IO (Float, Float)
+```
+
+Recursive per-sample processing loop that threads `bp` and `lp` state through all samples in the block.
+
+## Example
+
+```mkl
+input -> filter.lowpass(1000, 0.7) -> output
+oscillator.sawtooth(220) -> filter.bandpass(800, 2.0) -> output
+```
+
+## Usage Notes
+
+- Stateful kernel: must be created via `mkSVFilter` in IO. Not included in `builtinRegistry`.
+- The `KernelId` varies by mode: `"filter.lowpass"`, `"filter.highpass"`, `"filter.bandpass"`, or `"filter.notch"`.
+- Resonance is internally inverted to Q: `Q = 1 / resonance`. Higher resonance values produce a sharper peak at the cutoff frequency. Minimum is clamped to 0.5 to prevent instability.
+- The Chamberlin form can become unstable at very high cutoff frequencies relative to the sample rate. Keep `cutoff < sampleRate / 6` for reliable behavior.

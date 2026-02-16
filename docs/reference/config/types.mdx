@@ -1,0 +1,79 @@
+---
+title: "Musikell.Config.Types"
+description: "Flat key=value configuration stored at XDG_CONFIG_HOME"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-config-types"
+tags: ["reference", "config"]
+source: "src/Musikell/Config/Types.hs"
+---
+
+**Module:** `Musikell.Config.Types`
+**Source:** `src/Musikell/Config/Types.hs`
+**Dependencies:** `Data.Map.Strict`, `Data.Text`, `System.Directory`, `System.FilePath`
+
+## Purpose
+
+Flat key=value configuration file management. Configuration is stored at `~/.config/musikell/config` (XDG_CONFIG_HOME). Format: one `key=value` per line, `#` for comments.
+
+## Types
+
+### `Config`
+
+```haskell
+data Config = Config
+  { configDefaultBackend :: !(Maybe Text)
+  } deriving (Eq, Show)
+```
+
+| Field                  | Type         | Description                       |
+| ---------------------- | ------------ | --------------------------------- |
+| `configDefaultBackend` | `Maybe Text` | Default backend flake ref, if set |
+
+## Functions
+
+### `configPath`
+
+```haskell
+configPath :: IO FilePath
+```
+
+Returns the path to the config file: `~/.config/musikell/config`.
+
+### `readConfig`
+
+```haskell
+readConfig :: IO Config
+```
+
+Read and parse the config file. Returns `Config Nothing` if the file does not exist.
+
+### `writeConfig`
+
+```haskell
+writeConfig :: Config -> IO ()
+```
+
+Serialize and write the config file. Creates the config directory if it does not exist.
+
+### `setConfigKey`
+
+```haskell
+setConfigKey :: Text -> Text -> IO ()
+```
+
+Set a single key=value pair in the config file. Preserves existing keys.
+
+### `getConfigKey`
+
+```haskell
+getConfigKey :: Text -> IO (Maybe Text)
+```
+
+Look up a single key from the config file. Returns `Nothing` if the file or key does not exist.
+
+## Usage Notes
+
+- The config file format is intentionally simple — no YAML, no TOML, just `key=value`.
+- Used by `Musikell.CLI.Dispatch` for `musikell config set/get` commands.
+- The `default_backend` key maps to `configDefaultBackend`.

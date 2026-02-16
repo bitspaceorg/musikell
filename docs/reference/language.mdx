@@ -1,0 +1,28 @@
+---
+title: "Language Layer"
+description: "AST, parser, grammar, and lowering to audio graph"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-language"
+tags: ["reference", "language"]
+---
+
+Language layer: AST definition, hand-rolled recursive-descent parser, and lowering pass that transforms parsed programs into a runnable audio graph.
+
+## Pipeline
+
+```
+.mkl source --> Parser --> AST (Program) --> Lowering --> Graph + ExecutionPlan + KernelRegistry
+                  |                             |
+             hand-rolled                  freshId, env, groups,
+             precedence climbing          feedback edges, bypass/mute
+```
+
+## Modules
+
+| Module                              | Description                                                                  |
+| ----------------------------------- | ---------------------------------------------------------------------------- |
+| [AST](language/ast.mdx)             | Complete type definitions for the Musikell abstract syntax tree              |
+| [Parser](language/parser.mdx)       | Hand-rolled recursive-descent parser with precedence climbing for binary ops |
+| [Grammar](../reference/grammar.mdx) | Formal grammar specification for the `.mkl` DSL                              |
+| [Lowering](language/lowering.mdx)   | AST-to-graph lowering: imports, bindings, groups, feedback, bypass/mute      |

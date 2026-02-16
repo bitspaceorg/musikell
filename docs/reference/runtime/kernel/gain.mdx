@@ -1,0 +1,56 @@
+---
+title: "Gain Kernel"
+description: "Amplitude scaling kernel -- multiply every sample by a constant"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-gain"
+tags: ["reference", "runtime", "kernel", "gain"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Gain.hs"
+---
+
+## Purpose
+
+Multiply every sample in a buffer by a constant amplitude factor.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Gain`
+
+---
+
+## `gainKernel`
+
+**KernelId:** `"gain"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** No
+
+```haskell
+gainKernel :: Double -> KernelSpec
+```
+
+### Parameters
+
+| Parameter | Type     | Description                                                                    |
+| --------- | -------- | ------------------------------------------------------------------------------ |
+| `level`   | `Double` | Linear amplitude multiplier. Converted to `Float` internally via `realToFrac`. |
+
+### Behavior
+
+For each sample index `i` in the block:
+
+```
+output[i] = input[i] * gain
+```
+
+The gain value is converted from `Double` to `Float` once and reused across all samples via a strict `let` binding with `BangPatterns`.
+
+Uses `unsafeReadSample` and `unsafeWriteSample` for zero-bounds-check buffer access, and `forRange_` for a strict loop over the block.
+
+### Example
+
+```mkl
+input -> gain(0.5) -> output
+```
+
+## Usage Notes
+
+- `gainKernel 1.0` is included in `builtinRegistry` as the default identity gain.
+- The gain parameter is a linear multiplier, not decibels. To convert from dB: `gain = 10 ** (dB / 20)`.
+- For time-varying gain (e.g. automation), use `RampState` from `Musikell.Runtime.Param` to smooth parameter changes and avoid clicks.

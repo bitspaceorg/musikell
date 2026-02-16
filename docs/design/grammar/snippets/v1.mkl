@@ -1,0 +1,30 @@
+OS1 => amp = 1.0, freq = 440.0
+
+IP1 <<< -- External input -> This will be in terms of sample and will take the base node form
+
+Creational<ARG>.MyNewNode => p1, p2, p3 <<< -- This could a seperate file which we can import
+	OP1, NOP1 = Creational(ARG.amp).Oscillator (...)
+	Manipulative<OP1>().reverb (...) >>>
+
+OP1, NOP1 = Creational(0.5).Oscillator(OS1.freq, 2.0)
+OP2, NOP2 = Manipulative<OP1>().reverb (...)
+-- wavetable -> level/%  -> wavetable
+OP3, NOP3 = Manipulative<OP1>(NOP1.amplitude/2).reverb (...)
+			-- (OP1.amplitude/2) -> This will overwrite the default amplitude infered from <OP1>  
+OP4, NOP4 = Manipulative<IP1>().delay (...)
+OP5, NOP5 = Manipulative<OP4, OP3>().Mixer (...)
+
+OP6, NOP6 = Conditional<IP1>().switch<FREQUENCY>(EMPTY)
+								.case (440.0, MAX, 440.0)
+								.case (220.0, 440.0, 220.0)
+								.case (MIN, 220.0, 0.0)
+
+OP7, NOP7 = Conditional<IP1>().case (AMPLITUDE, 2, MAX, 2)
+
+OP8, NOP8 = Creational(OS1.amp*2).MyNewNode (...)
+
+OP5 >>> -- This will output the samples from that node -> Note this will only stream in samples for 256
+
+-- the OP/IP will have the following contents in them -> signal (sample of 256) [when I pass OP to another node with <...> this will infer all the output for it's input] -> amplitude -> and other paramters
+-- the NOP will have the node output -> eq. Oscillator/reverb/delay/mixer's ouput will be in NOP
+-- To note OP/IP/NOP are the variable names 

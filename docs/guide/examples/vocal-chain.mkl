@@ -1,0 +1,17 @@
+-- vocal-chain.mkl
+-- Vocal processing chain: input -> highpass -> compressor -> reverb -> output.
+
+input mic
+
+-- Remove low-frequency rumble
+filtered = Manipulative<mic>.Filter<HP>(cutoff=80, resonance=0.5)
+
+-- Compress dynamics
+compressed = Manipulative<filtered>.Dynamics<Compressor>(
+  threshold=-18, ratio=4, attack=5, release=50, makeup=6
+)
+
+-- Add reverb
+wet = Manipulative<compressed>.Reverb(room=0.6, decay=1.5, damping=0.4, mix=0.25)
+
+output wet

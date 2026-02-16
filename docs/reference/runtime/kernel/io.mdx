@@ -1,0 +1,105 @@
+---
+title: "IO Kernels"
+description: "Input, output, passthrough, and null signal routing kernels"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-io"
+tags: ["reference", "runtime", "kernel", "io"]
+source: "src/Musikell/Runtime/Kernel/Builtin/IO.hs"
+---
+
+## Purpose
+
+Stream boundary markers. The scheduler fills the input node's buffer from stdin and reads the output node's buffer to stdout. These kernels define the edges of the audio processing graph.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.IO`
+
+---
+
+## `inputKernel`
+
+**KernelId:** `"input"`
+**Inputs:** 0 | **Outputs:** 1 | **Stateful:** No
+
+```haskell
+inputKernel :: KernelSpec
+```
+
+### Behavior
+
+No-op kernel. The scheduler fills its output buffer from stdin before graph execution begins. The kernel itself does nothing.
+
+### Example
+
+```mkl
+input -> gain(0.5) -> output
+```
+
+---
+
+## `outputKernel`
+
+**KernelId:** `"output"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** No
+
+```haskell
+outputKernel :: KernelSpec
+```
+
+### Behavior
+
+Copies input buffer to output buffer using `copyBuffer`. The scheduler extracts the output buffer contents to stdout after graph execution completes.
+
+### Example
+
+```mkl
+input -> output
+```
+
+---
+
+## `passthruKernel`
+
+**KernelId:** `"passthru"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** No
+
+```haskell
+passthruKernel :: KernelSpec
+```
+
+### Behavior
+
+Copies input to output unchanged via `copyBuffer`. Useful as a routing placeholder or identity node in the graph.
+
+### Example
+
+```mkl
+input -> passthru -> output
+```
+
+---
+
+## `nullKernel`
+
+**KernelId:** `"null"`
+**Inputs:** 1 | **Outputs:** 0 | **Stateful:** No
+
+```haskell
+nullKernel :: KernelSpec
+```
+
+### Behavior
+
+Consumes input, produces nothing. No-op execution. Useful as a sink node that discards signal.
+
+### Example
+
+```mkl
+input -> null
+```
+
+## Usage Notes
+
+- All four kernels are stateless and included in `builtinRegistry` by default.
+- `inputKernel` and `outputKernel` are special: the scheduler treats them as stream boundaries. Every valid graph must have exactly one input and one output node.
+- `copyBuffer` uses `MV.copy` internally, which compiles to `memcpy`.

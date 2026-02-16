@@ -1,0 +1,133 @@
+-- File: src/Musikell/Language/Grammar.hs
+-- Author: rahulmnavneeth@gmail.com
+-- Docs: docs/reference/language/grammar.mdx
+-- Module: Musikell.Language.Grammar
+
+-- == Grammar Overview (v2)
+--
+-- @
+-- program      ::= import* statement*
+--
+-- import       ::= 'use' string
+--                 | 'use' string '(' identifier (',' identifier)* ')'
+--                 | 'use' string 'as' identifier
+--
+-- statement    ::= binding | ioStmt | groupDef | paramSet | comment
+--
+-- binding      ::= bindPrefix? identifier '=' expr
+-- bindPrefix   ::= '!' | '#'
+--
+-- ioStmt       ::= qualName '<<<' identifier?
+--                 | qualName '>>>' identifier?
+--
+-- groupDef     ::= 'group' identifier '{' statement* '}'
+--
+-- paramSet     ::= identifier '=>' paramPair (',' paramPair)*
+-- paramPair    ::= identifier '=' expr
+--
+-- comment      ::= '--' restOfLine
+--
+-- expr         ::= exprPrec0
+-- exprPrec0    ::= exprPrec1 (('+' | '-') exprPrec1)*
+-- exprPrec1    ::= atomExpr (('*' | '/') atomExpr)*
+--
+-- atomExpr     ::= literal
+--                 | '~' qualName
+--                 | qualName
+--                 | identifier '(' exprList ')'
+--                 | nodeExpr
+--                 | '(' expr ')'
+--                 | '-' atomExpr
+--
+-- postAtom     ::= ('.' identifier)*
+--
+-- nodeExpr     ::= nodeType inputList? overrides? '.' kernelName namedArgList methodChain?
+-- nodeType     ::= 'Creational' | 'Manipulative' | 'Conditional'
+--
+-- inputList    ::= '<' inputRef (',' inputRef)* '>'
+-- inputRef     ::= '~'? qualName
+--
+-- overrides    ::= '(' exprList ')'
+-- exprList     ::= (expr (',' expr)*)?
+--
+-- kernelName   ::= identifier ('.' identifier)*
+-- namedArgList ::= '(' (namedArg (',' namedArg)*)? ')'
+-- namedArg     ::= identifier '=' expr
+--                 | 'pattern' '=' pattern
+--
+-- methodChain  ::= methodCall*
+-- methodCall   ::= '.' identifier typeParam? namedArgList
+-- typeParam    ::= '<' identifier '>'
+--
+-- qualName     ::= identifier ('.' identifier)*
+--
+-- literal      ::= number | string | bool | pattern
+-- number       ::= digit+ ('.' digit+)?
+-- string       ::= '"' [^"]* '"'
+-- bool         ::= 'true' | 'false'
+-- pattern      ::= [xXoO_]+
+-- identifier   ::= [a-zA-Z_][a-zA-Z0-9_]*
+-- @
+--
+-- == Disambiguation Rules
+--
+-- \* @--@ (comment) vs @-@ (negation\/subtraction): peek two chars
+-- \* @<@ after NodeType keyword = input spec (no @<@ operator)
+-- \* @(@ after @\<inputs\>@ = overrides; @(@ after @.Kernel@ = named args
+-- \* @pattern=@ triggers beat pattern parsing for the value
+-- \* Keywords: @use@, @group@, @true@, @false@, @as@,
+--   @Creational@, @Manipulative@, @Conditional@
+--
+-- == Example
+--
+-- @
+-- CLOCK => bpm = 128, division = 16
+-- VENUE => room_size = 0.85, decay = 2.4, damping = 0.6
+--
+-- use "./presets/house-kit.mkl" (HouseKick, HouseHat)
+-- use "./vendor/premium-verbs.mkl" as PremVerb
+--
+-- vocal_in <<< vocal
+--
+-- group generators {
+--     sub_bass = Creational(0.7).Oscillator(freq=55.0, waveform=sine)
+--     #click = Creational(0.1).Oscillator(freq=1000.0, waveform=square)
+-- }
+--
+-- comp = Manipulative\<vocal_in\>(AMPLITUDE=0.8).Compressor(
+--     threshold=0.4, ratio=3.0
+-- )
+--
+-- delay = Manipulative\<reverb, ~delay\>().Delay(samples=4410)
+--
+-- ctrl = Conditional\<input\>().switch\<AMPLITUDE\>(default_node)
+--     .case(0.0, 0.05, low_node)
+--     .case(0.05, MAX, high_node)
+--
+-- seq = Manipulative\<kick\>().Beat(pattern=x___x___x___x___)
+--
+-- master.lim >>> main_speakers
+-- @
+
+module Musikell.Language.Grammar (
+    -- * Grammar Documentation
+    -- $grammar
+) where
+
+-- $grammar
+-- The Musikell DSL v2 grammar supports:
+--
+-- * Import system: bare, selective, and namespaced imports
+-- * Group definitions with nested scoping
+-- * Multi-input nodes with feedback references (@~node@)
+-- * Arithmetic expressions with precedence (@+@, @-@, @*@, @/@)
+-- * Built-in functions: @min@, @max@, @clamp@
+-- * Parameter sets (reusable presets) with @=>@ syntax
+-- * Bypass (@!@) and mute (@#@) prefixes on bindings
+-- * Beat patterns (@x_o_x_o_@)
+-- * Conditional sugar: @.switch\<FIELD\>().case()@
+-- * Stereo channel access via dot notation (@.L@, @.R@)
+-- * Named-only kernel parameters
+-- * Namespaced plugin kernels (@PremVerb.Hall@)
+--
+-- See the module header for the complete BNF grammar.

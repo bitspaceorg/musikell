@@ -1,0 +1,158 @@
+---
+title: "Patterns"
+description: "Beat sequencing, pattern notation, and timing control in Musikell"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "guide/patterns"
+tags: ["guide", "patterns", "sequencer", "rhythm"]
+---
+
+# Patterns
+
+## What You'll Learn
+
+- How the Sequencer kernel works
+- The pattern notation syntax
+- How BPM and subdivision control timing
+- How to build multi-part drum patterns
+
+## Prerequisites
+
+- [Nodes](nodes.mdx) -- understanding of Creational nodes
+- [Routing](routing.mdx) -- understanding of mixing multiple signals
+
+## The Sequencer Kernel
+
+The `Sequencer` is a Creational kernel that generates a rhythmic gate signal based on a pattern string. It outputs a signal that alternates between 1.0 (hit) and 0.0 (rest), which you can use to gate or modulate other nodes.
+
+### Syntax
+
+```mkl
+name = Creational.Sequencer(pattern=|...|, bpm=120, subdivision=4)
+```
+
+### Parameters
+
+| Parameter     | Type    | Description                                            |
+| ------------- | ------- | ------------------------------------------------------ |
+| `pattern`     | Pattern | The rhythm pattern enclosed in `\|...\|`               |
+| `bpm`         | Integer | Beats per minute (tempo)                               |
+| `subdivision` | Integer | Steps per beat (4 = sixteenth notes, 2 = eighth notes) |
+
+## Pattern Notation
+
+Patterns are enclosed in pipe characters `|...|` and use two symbols:
+
+| Symbol | Meaning | Output value |
+| ------ | ------- | ------------ |
+| `x`    | Hit     | 1.0          |
+| `.`    | Rest    | 0.0          |
+
+The pattern repeats indefinitely. Each symbol corresponds to one subdivision step.
+
+### Examples
+
+Four-on-the-floor kick (every beat in 4/4 at sixteenth-note resolution):
+
+```
+|x...x...x...x...|
+```
+
+This is 16 steps. At `subdivision=4`, each group of 4 steps equals one beat. The `x` lands on beats 1, 2, 3, and 4.
+
+Offbeat hi-hat:
+
+```
+|..x...x...x...x.|
+```
+
+Backbeat snare (beats 2 and 4):
+
+```
+|....x.......x...|
+```
+
+Syncopated pattern:
+
+```
+|x..x..x.x..x...|
+```
+
+## Gating Audio with Patterns
+
+The sequencer outputs a control signal. To turn it into audible sound, multiply it with an audio source using `Gain`:
+
+```mkl
+-- Create the rhythmic pattern
+kick_seq = Creational.Sequencer(pattern=|x...x...x...x...|, bpm=120, subdivision=4)
+
+-- Create the sound source
+kick_osc = Creational.Oscillator<Sine>(freq=60)
+
+-- Gate the oscillator with the pattern
+kick = Manipulative<kick_osc, kick_seq>.Gain(level=0.8)
+```
+
+When the sequencer outputs 1.0, the oscillator passes through. When it outputs 0.0, the signal is silenced.
+
+## Multi-Part Patterns
+
+Combine multiple sequencer/source pairs for a complete drum pattern:
+
+```mkl
+-- Kick: four on the floor
+kick_seq = Creational.Sequencer(pattern=|x...x...x...x...|, bpm=120, subdivision=4)
+kick_osc = Creational.Oscillator<Sine>(freq=60)
+kick = Manipulative<kick_osc, kick_seq>.Gain(level=0.8)
+
+-- Hi-hat: every eighth note
+hat_seq = Creational.Sequencer(pattern=|x.x.x.x.x.x.x.x.|, bpm=120, subdivision=4)
+hat_noise = Creational.Noise<White>(seed=42)
+hat_filtered = Manipulative<hat_noise>.Filter<HP>(cutoff=8000, resonance=0.3)
+hat = Manipulative<hat_filtered, hat_seq>.Gain(level=0.4)
+
+-- Snare: beats 2 and 4
+snare_seq = Creational.Sequencer(pattern=|....x.......x...|, bpm=120, subdivision=4)
+snare_noise = Creational.Noise<White>(seed=77)
+snare = Manipulative<snare_noise, snare_seq>.Gain(level=0.6)
+
+-- Mix all parts
+drums = Manipulative<kick, hat, snare>.Mix()
+output drums
+```
+
+## Tempo and Subdivision
+
+The relationship between `bpm`, `subdivision`, and pattern length determines the feel:
+
+| BPM | Subdivision | Steps per beat | Step duration |
+| --- | ----------- | -------------- | ------------- |
+| 120 | 4           | 4 (sixteenths) | ~125 ms       |
+| 120 | 2           | 2 (eighths)    | ~250 ms       |
+| 120 | 1           | 1 (quarters)   | ~500 ms       |
+| 140 | 4           | 4 (sixteenths) | ~107 ms       |
+
+A pattern of length 16 at `subdivision=4` spans exactly 4 beats (one bar in 4/4 time).
+
+### Polyrhythms
+
+You can create polyrhythms by using patterns of different lengths:
+
+```mkl
+-- 16-step pattern (4 beats in 4/4)
+four_four = Creational.Sequencer(pattern=|x...x...x...x...|, bpm=120, subdivision=4)
+
+-- 12-step pattern (3 beats against 4)
+three_four = Creational.Sequencer(pattern=|x...x...x...|, bpm=120, subdivision=4)
+```
+
+The 12-step pattern completes its cycle in 3 beats while the 16-step pattern takes 4 beats, creating a 3-against-4 polyrhythm.
+
+## Summary
+
+The Sequencer kernel generates rhythmic gate signals from pattern strings. Patterns use `x` for hits and `.` for rests, enclosed in `|...|`. Gate signals are multiplied with audio sources using `Gain` to create rhythmic audio. BPM and subdivision control tempo and resolution. Patterns of different lengths create polyrhythms.
+
+## Next Steps
+
+- [Conditional](conditional.mdx) -- bypass, mute, and crossfade routing
+- [Examples](examples.mdx) -- complete annotated programs including a drum machine

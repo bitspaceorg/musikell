@@ -1,20 +1,22 @@
-cabal-version: 3.0
-name:          musikell
-version:       0.1.0.0
+cabal-version:      3.0
+name:               musikell
+version:            0.1.0.0
+synopsis:           Deterministic, real-time, graph-based audio runtime
+description:
+  Musikell is a structured execution engine designed to execute audio node
+  graphs deterministically, operate in real-time block-based scheduling,
+  stream live audio through Unix pipelines, and support backend interchangeability
+  through a stable C ABI contract.
 
--- synopsis:
--- description:
-license:       Apache-2.0
-license-file:  LICENSE
-author:        RahulNavneeth
-maintainer:    rahulmnavneeth@bitspace.org.in
-
--- copyright:
-category:      Sound
-build-type:    Custom
-
--- extra-doc-files:    
--- extra-source-files:
+license:            Apache-2.0
+license-file:       LICENSE
+author:             RahulNavneeth
+maintainer:         rahulmnavneeth@bitspace.org.in
+category:           Sound
+build-type:         Custom
+extra-source-files:
+  csrc/tick_loop.h
+  src/Musikell/FFI/Contract.h
 
 common warnings
   ghc-options: -Wall
@@ -27,38 +29,89 @@ custom-setup
 library
   import:           warnings
   exposed-modules:
-    Musikell.Functions.Base
-    Musikell.Functions.Oscillator.Base
-    Musikell.Functions.Oscillator.Sawtooth
-    Musikell.Functions.Oscillator.Sine
-    Musikell.Functions.Oscillator.Square
-    Musikell.Functions.Oscillator.Triangle
-    Musikell.Functions.Wave
-    Musikell.Nodes.Base.Base
-    Musikell.Nodes.Base.Descriptor
-    Musikell.Nodes.Base.In
-    Musikell.Nodes.Base.Out
-    Musikell.Nodes.Oscillator.Base
-    Musikell.Nodes.Oscillator.Descriptor
-    Musikell.Nodes.Oscillator.In
-    Musikell.Nodes.Oscillator.Out
-    Musikell.Types.Base
+    Musikell.Backend.Resolver
+    Musikell.CLI.Command
+    Musikell.CLI.Dispatch
+    Musikell.CLI.Parse
+    Musikell.Config.Types
+    Musikell.Core.ExecutionPlan
+    Musikell.Core.Graph
+    Musikell.Core.Node
+    Musikell.Core.ResolvedPlan
+    Musikell.Core.Scheduler
+    Musikell.Core.Types
+    Musikell.FFI.Bridge
+    Musikell.FFI.Exports
+    Musikell.IO.ConduitPipeline
+    Musikell.IO.StreamInput
+    Musikell.IO.StreamOutput
+    Musikell.Language.AST
+    Musikell.Language.Grammar
+    Musikell.Language.Lowering
+    Musikell.Language.Parser
+    Musikell.Memory.Buffer
+    Musikell.Memory.Layout
+    Musikell.Memory.Pool
+    Musikell.Runtime.Accelerate.Backend
+    Musikell.Runtime.Accelerate.Context
+    Musikell.Runtime.Accelerate.Kernel
+    Musikell.Runtime.Kernel
+    Musikell.Runtime.Kernel.Builtin
+    Musikell.Runtime.Kernel.Builtin.Channel
+    Musikell.Runtime.Kernel.Builtin.Crossfade
+    Musikell.Runtime.Kernel.Builtin.Delay
+    Musikell.Runtime.Kernel.Builtin.Dynamics
+    Musikell.Runtime.Kernel.Builtin.Envelope
+    Musikell.Runtime.Kernel.Builtin.Filter
+    Musikell.Runtime.Kernel.Builtin.Gain
+    Musikell.Runtime.Kernel.Builtin.IO
+    Musikell.Runtime.Kernel.Builtin.Mix
+    Musikell.Runtime.Kernel.Builtin.Noise
+    Musikell.Runtime.Kernel.Builtin.Oscillator
+    Musikell.Runtime.Kernel.Builtin.Reverb
+    Musikell.Runtime.Kernel.Builtin.Sequencer
+    Musikell.Runtime.Kernel.Builtin.Util
+    Musikell.Runtime.Kernel.Foreign
+    Musikell.Runtime.Param
 
-  -- other-modules:
-  -- other-extensions:
-  build-depends:    base >=4.17 && <4.20
+  -- Core layer
+  -- Memory layer
+  -- Language layer
+  -- Runtime layer
+  -- IO layer
+  -- FFI layer
+  -- CLI layer
+  -- Config layer
+  -- Backend layer
+  -- Foreign kernel loading
+  include-dirs:     src/Musikell/FFI csrc
+  c-sources:
+    csrc/kernels.c
+    csrc/tick_loop.c
+
+  build-depends:
+    , base        >=4.17 && <4.20
+    , bytestring  >=0.11
+    , conduit     >=1.3
+    , containers  >=0.6
+    , directory   >=1.3
+    , filepath    >=1.4
+    , process     >=1.6
+    , text        >=2.0
+    , vector      >=0.13
+
   hs-source-dirs:   src
   default-language: Haskell2010
 
 executable musikell
   import:           warnings
   main-is:          Main.hs
-
-  -- other-modules:
-  -- other-extensions:
   build-depends:
-    , base      >=4.17 && <4.20
+    , base        >=4.17 && <4.20
+    , bytestring
+    , conduit
     , musikell
+    , text
 
   hs-source-dirs:   exe
   default-language: Haskell2010
@@ -68,34 +121,27 @@ test-suite musikell-test
   default-language: Haskell2010
   ghc-options:      -fhpc
   type:             exitcode-stdio-1.0
-  hs-source-dirs:   test src
+  hs-source-dirs:   test
   main-is:          Main.hs
   other-modules:
-    Musikell.Functions.Base
-    Musikell.Functions.Oscillator.Base
-    Musikell.Functions.Oscillator.Sawtooth
-    Musikell.Functions.Oscillator.Sine
-    Musikell.Functions.Oscillator.Square
-    Musikell.Functions.Oscillator.Triangle
-    Musikell.Functions.Wave
-    Musikell.Nodes.Base.Base
-    Musikell.Nodes.Base.Descriptor
-    Musikell.Nodes.Base.In
-    Musikell.Nodes.Base.Out
-    Musikell.Nodes.Oscillator.Base
-    Musikell.Nodes.Oscillator.Descriptor
-    Musikell.Nodes.Oscillator.In
-    Musikell.Nodes.Oscillator.Out
-    Musikell.Types.Base
-    Test.Musikell.Functions.Base
-    Test.Musikell.Functions.Wave
-    Test.Musikell.Nodes.Base
-    Test.Musikell.Nodes.BaseNode
-    Test.Musikell.Nodes.OscillatorNode
+    Test.Musikell.CLI.Parse
+    Test.Musikell.Core.ExecutionPlan
+    Test.Musikell.Core.Graph
+    Test.Musikell.Language.Parser
+    Test.Musikell.Memory.Buffer
 
+  -- Test modules
   build-depends:
     , base              >=4.17 && <4.20
+    , bytestring
+    , conduit
+    , containers
+    , directory
+    , filepath
     , musikell
+    , process
     , tasty
     , tasty-hunit
     , tasty-quickcheck
+    , text
+    , vector

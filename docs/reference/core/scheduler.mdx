@@ -1,0 +1,145 @@
+---
+title: "Musikell.Core.Scheduler"
+description: "Block-based deterministic scheduler with two execution modes"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-core-scheduler"
+tags: ["reference", "core"]
+source: "src/Musikell/Core/Scheduler.hs"
+---
+
+Block-based deterministic scheduler. Provides two execution modes: a legacy path with per-block lookups (kept for tests) and a zero-allocation resolved path for production use.
+
+## Language extensions
+
+| Extension      | Reason                               |
+| -------------- | ------------------------------------ |
+| `BangPatterns` | Strict state updates in the hot path |
+
+## Dependencies
+
+| Package / Module              | Import                                                                                          |
+| ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| `text`                        | `Data.Text (pack)`                                                                              |
+| `Musikell.Core.Types`         | `NodeId, PortId(..), BlockSize, BlockIndex, KernelId(..), SchedulerError(..), defaultBlockSize` |
+| `Musikell.Core.Node`          | `nodeKernel, nodeOutputs, portId`                                                               |
+| `Musikell.Core.Graph`         | `Graph, getNode, getIncomingEdges, Edge(..)`                                                    |
+| `Musikell.Core.ExecutionPlan` | `ExecutionPlan, planNodes`                                                                      |
+| `Musikell.Core.ResolvedPlan`  | `ResolvedPlan, executeResolvedBlock`                                                            |
+| `Musikell.Memory.Pool`        | `BufferPool, getPoolBuffer, swapFeedbackBuffers`                                                |
+| `Musikell.Runtime.Kernel`     | `KernelRegistry, lookupKernel, kernelExecute`                                                   |
+
+## Types
+
+### SchedulerConfig
+
+```haskell
+data SchedulerConfig = SchedulerConfig
+  { configBlockSize :: !BlockSize
+  } deriving (Eq, Show)
+```
+
+| Field             | Type        | Strictness | Description                            |
+| ----------------- | ----------- | ---------- | -------------------------------------- |
+| `configBlockSize` | `BlockSize` | strict     | Number of samples per processing block |
+
+### SchedulerState
+
+```haskell
+data SchedulerState = SchedulerState
+  { stateCurrentBlock :: !BlockIndex
+  , statePool         :: !BufferPool
+  , stateConfig       :: !SchedulerConfig
+  } deriving (Show)
+```
+
+| Field               | Type              | Strictness | Description                                    |
+| ------------------- | ----------------- | ---------- | ---------------------------------------------- |
+| `stateCurrentBlock` | `BlockIndex`      | strict     | Current block counter (incremented each block) |
+| `statePool`         | `BufferPool`      | strict     | Buffer pool for node I/O                       |
+| `stateConfig`       | `SchedulerConfig` | strict     | Scheduler configuration                        |
+
+## Functions
+
+### defaultSchedulerConfig
+
+```haskell
+defaultSchedulerConfig :: SchedulerConfig
+```
+
+Default configuration with `configBlockSize = 256` (from `defaultBlockSize`).
+
+### initScheduler
+
+```haskell
+initScheduler :: SchedulerConfig -> BufferPool -> SchedulerState
+```
+
+Initialise scheduler state with block counter at 0.
+
+| Parameter | Description               |
+| --------- | ------------------------- |
+| `config`  | Scheduler configuration   |
+| `pool`    | Pre-allocated buffer pool |
+
+Returns a `SchedulerState` with `stateCurrentBlock = 0`.
+
+### executeResolvedBlockWithState (preferred hot path)
+
+```haskell
+executeResolvedBlockWithState
+  :: ResolvedPlan
+  -> SchedulerState
+  -> IO SchedulerState
+```
+
+Execute one block using the pre-resolved plan. This is the preferred production path.
+
+Steps per call:
+
+1. Call `executeResolvedBlock` -- walks the flat vector of pre-built closures
+2. Call `swapFeedbackBuffers` on the pool -- swap feedback double-buffers for the next block
+3. Increment `stateCurrentBlock` (strict update via `$!`)
+
+Zero lookups, zero allocation per block. All kernel and buffer resolution was done once in `buildResolvedPlan`.
+
+### executeBlock (legacy path)
+
+```haskell
+executeBlock
+  :: ExecutionPlan
+  -> Graph
+  -> KernelRegistry
+  -> SchedulerState
+  -> IO (Either SchedulerError SchedulerState)
+```
+
+Execute one block through the entire graph using per-block lookups. Kept for tests and debugging.
+
+For each node in `planNodes`:
+
+1. Look up `NodeSpec` in the graph
+2. Look up `KernelSpec` in the registry
+3. Resolve input buffers by following incoming edges to the pool
+4. Resolve output buffers by looking up each output port in the pool
+5. Call `kernelExecute spec inputs outputs`
+
+After all nodes are processed, calls `swapFeedbackBuffers` and increments the block counter.
+
+| Error                                                      | Condition                                |
+| ---------------------------------------------------------- | ---------------------------------------- |
+| `KernelExecutionFailed (KernelId "?") "node not in graph"` | Node ID not found in graph               |
+| `KernelExecutionFailed kid "kernel not registered"`        | Kernel ID not found in registry          |
+| `MissingBuffer nid (PortId 0)`                             | Input or output buffer not found in pool |
+
+Short-circuits on the first error -- remaining nodes in the plan are not executed.
+
+## Execution mode comparison
+
+| Property             | `executeResolvedBlockWithState` | `executeBlock`                              |
+| -------------------- | ------------------------------- | ------------------------------------------- |
+| Lookups per block    | 0                               | O(V \* log V)                               |
+| Allocation per block | 0                               | O(V) list construction                      |
+| Error handling       | Errors caught at build time     | Errors caught per block                     |
+| Return type          | `IO SchedulerState`             | `IO (Either SchedulerError SchedulerState)` |
+| Use case             | Production hot path             | Tests, debugging                            |

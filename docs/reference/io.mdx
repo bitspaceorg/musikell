@@ -1,0 +1,27 @@
+---
+title: "IO Layer"
+description: "Unix pipeline streaming — stdin to stdout"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-io"
+tags: ["reference", "io"]
+---
+
+IO layer: Unix pipeline streaming for real-time audio.
+
+The IO layer connects stdin → graph → stdout in a single streaming loop using Conduit.
+
+## Pipeline
+
+```
+stdin → sourceStdin/chunkedSource → bytesIntoBuffer → executeBlock → unsafeBufferToBytes → sinkStdout → stdout
+         (StreamInput)              (zero-alloc)       (Scheduler)    (zero-copy)           (StreamOutput)
+```
+
+## Modules
+
+| Module                                     | Description                                             |
+| ------------------------------------------ | ------------------------------------------------------- |
+| [StreamInput](io/stream-input.mdx)         | PCM reads from stdin into pre-allocated buffers         |
+| [StreamOutput](io/stream-output.mdx)       | Buffer to PCM bytes with safe and zero-copy variants    |
+| [ConduitPipeline](io/conduit-pipeline.mdx) | Complete streaming pipeline: stdin → scheduler → stdout |

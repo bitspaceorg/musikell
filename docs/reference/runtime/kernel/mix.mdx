@@ -1,0 +1,82 @@
+---
+title: "Mix and Clip Kernels"
+description: "Signal mixing (summing) and hard clipping kernels"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-mix"
+tags: ["reference", "runtime", "kernel", "mix", "clip"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Mix.hs"
+---
+
+## Purpose
+
+Sum multiple input signals sample-by-sample, and clamp signal amplitude to a range.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Mix`
+
+---
+
+## `mixKernel`
+
+**KernelId:** `"mix"`
+**Inputs:** 2 (variadic at runtime) | **Outputs:** 1 | **Stateful:** No
+
+```haskell
+mixKernel :: KernelSpec
+```
+
+### Behavior
+
+Zeroes the output buffer, then accumulates all input buffers sample-by-sample:
+
+```
+output[i] = 0
+for each input buffer:
+    output[i] += input[i]
+```
+
+The `kernelInputs` field is set to 2 as a default, but the execution function iterates over all provided inputs regardless of count.
+
+### Example
+
+```mkl
+[osc_a, osc_b] -> mix -> output
+```
+
+---
+
+## `clipKernel`
+
+**KernelId:** `"clip"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** No
+
+```haskell
+clipKernel :: Double -> Double -> KernelSpec
+```
+
+### Parameters
+
+| Parameter | Type     | Description                                         |
+| --------- | -------- | --------------------------------------------------- |
+| `lo`      | `Double` | Lower clamp bound. Converted to `Float` internally. |
+| `hi`      | `Double` | Upper clamp bound. Converted to `Float` internally. |
+
+### Behavior
+
+Hard clamp each sample to the range `[lo, hi]`:
+
+```
+output[i] = max(lo, min(hi, input[i]))
+```
+
+### Example
+
+```mkl
+input -> gain(2.0) -> clip(-1.0, 1.0) -> output
+```
+
+## Usage Notes
+
+- `mixKernel` is included in `builtinRegistry` by default.
+- `clipKernel (-1.0) 1.0` is included in `builtinRegistry` as the default full-range clip.
+- Mix does not normalize by the number of inputs. If summing N signals, each at full scale, the output can exceed [-1, 1]. Chain with `clipKernel` or `gainKernel (1.0 / N)` to prevent clipping.

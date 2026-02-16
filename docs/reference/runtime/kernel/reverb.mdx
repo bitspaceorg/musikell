@@ -1,0 +1,76 @@
+---
+title: "Reverb Kernel"
+description: "Feedback Delay Network (FDN) reverb with Hadamard mixing matrix"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-reverb"
+tags: ["reference", "runtime", "kernel", "reverb", "fdn"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Reverb.hs"
+---
+
+## Purpose
+
+Feedback Delay Network (FDN) reverb using 4 delay lines with a Hadamard mixing matrix and per-line lowpass filtering for natural frequency-dependent decay. This is the standard approach for efficient algorithmic reverb.
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Reverb`
+
+---
+
+## `mkFDNReverb`
+
+**KernelId:** `"reverb.fdn"`
+**Inputs:** 1 | **Outputs:** 1 | **Stateful:** Yes (4 delay line buffers, 4 write positions, 4 lowpass filter states)
+
+```haskell
+mkFDNReverb :: Double -> Double -> Double -> Double -> SampleRate -> IO KernelSpec
+```
+
+### Parameters
+
+| Parameter  | Type         | Description                                                                                                  |
+| ---------- | ------------ | ------------------------------------------------------------------------------------------------------------ |
+| `roomSize` | `Double`     | Relative room size (1.0 = default). Scales delay line lengths.                                               |
+| `decay`    | `Double`     | Feedback gain (0.0 - 0.99). Higher values produce longer reverb tails.                                       |
+| `damping`  | `Double`     | Lowpass coefficient for high-frequency absorption (0.0 - 1.0). Higher values preserve more high frequencies. |
+| `wetDry`   | `Double`     | Wet/dry mix (0.0 = fully dry, 1.0 = fully wet)                                                               |
+| `sr`       | `SampleRate` | Sample rate                                                                                                  |
+
+### Behavior
+
+Per-sample processing:
+
+1. **Read** delayed samples from all 4 delay lines
+2. **Hadamard mixing**: apply the 4x4 normalized Hadamard matrix to maximally mix delay line outputs while preserving energy
+3. **Damping**: apply per-line one-pole lowpass filter: `lp = lp + damping * (mixed - lp)`
+4. **Write back**: inject input signal plus feedback into each delay line: `delayLine[pos] = input + decay * dampedMixed`
+5. **Output**: `output = dry * input + wet * 0.25 * (d0 + d1 + d2 + d3)`
+
+### Internal: `delayLengths`
+
+```haskell
+delayLengths :: SampleRate -> Double -> [Int]
+```
+
+Computes 4 prime-number-based delay line lengths scaled by room size and sample rate. Base primes are 1117, 1327, 1559, 1787 (calibrated for 44100 Hz). Using primes avoids resonance peaks and metallic ringing.
+
+### Internal: `hadamard4`
+
+```haskell
+hadamard4 :: Float -> Float -> Float -> Float -> (Float, Float, Float, Float)
+```
+
+4x4 Hadamard matrix normalized by 1/2. Preserves energy while maximally mixing the 4 delay lines. Marked `INLINE`.
+
+## Example
+
+```mkl
+input -> reverb.fdn(1.0, 0.85, 0.5, 0.3) -> output
+```
+
+## Usage Notes
+
+- Stateful kernel: must be created via `mkFDNReverb` in IO. Not included in `builtinRegistry`.
+- The damping lowpass filter state does not persist correctly between blocks (resets at block boundaries). This is a known TODO in the source.
+- All filter states are flushed through `flushDenormals` to prevent subnormal float CPU penalties.
+- Memory allocation: 4 mutable storable vectors (delay lines) + 8 IORefs (4 write positions + 4 filter states).
+- Decay values at or above 1.0 will cause the reverb to grow without bound. Keep `decay < 1.0`.

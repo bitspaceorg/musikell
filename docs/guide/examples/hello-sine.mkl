@@ -1,0 +1,8 @@
+-- hello-sine.mkl
+-- The simplest Musikell program: a 440 Hz sine wave to stdout.
+--
+-- Run: musikell run hello-sine.mkl | aplay -f FLOAT_LE -r 44100 -c 1
+
+input stdin
+osc = Creational.Oscillator<Sine>(freq=440)
+output osc

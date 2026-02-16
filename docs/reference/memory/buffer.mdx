@@ -1,0 +1,210 @@
+---
+title: "Musikell.Memory.Buffer"
+description: "Storable mutable audio buffer with safe and unsafe sample access"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-memory-buffer"
+tags: ["reference", "memory"]
+source: "src/Musikell/Memory/Buffer.hs"
+---
+
+Fixed-size mutable buffer holding audio samples as `IOVector Float`. Provides both bounds-checked and unchecked access for hot-path kernels, plus FFI pointer export for C interop.
+
+## Purpose
+
+Every node in the audio graph reads from and writes to `Buffer` values. Buffers are allocated once at initialisation (via the pool) and reused across blocks. The storable vector backend means `copyBuffer` compiles down to `memcpy` and `unsafeWithBuffer` hands a raw `Ptr Float` to C code.
+
+## Language extensions
+
+| Extension                    | Reason                                       |
+| ---------------------------- | -------------------------------------------- |
+| `BangPatterns`               | Strict `let` bindings in `listToBuffer`      |
+| `GeneralizedNewtypeDeriving` | (present in module, unused by Buffer itself) |
+
+## Dependencies
+
+| Package  | Import                                                            |
+| -------- | ----------------------------------------------------------------- |
+| `base`   | `Data.IORef (IORef, newIORef)`                                    |
+| `vector` | `Data.Vector.Storable`, `Data.Vector.Storable.Mutable (IOVector)` |
+| `base`   | `Foreign.Ptr (Ptr)`                                               |
+| musikell | `Musikell.Core.Types (BlockSize)`                                 |
+
+## Types
+
+### Buffer
+
+A buffer holds a fixed-size block of audio samples.
+
+```haskell
+data Buffer = Buffer
+  { bufferData :: !(IOVector Float)
+  , bufferSize :: !BlockSize
+  }
+```
+
+| Field        | Type             | Description                                     |
+| ------------ | ---------------- | ----------------------------------------------- |
+| `bufferData` | `IOVector Float` | Mutable storable vector backing the sample data |
+| `bufferSize` | `BlockSize`      | Number of samples in the buffer                 |
+
+`Buffer` has a custom `Show` instance that prints `Buffer { size = N }`.
+
+### BufferRef
+
+```haskell
+type BufferRef = IORef Buffer
+```
+
+A mutable reference to a `Buffer`, used by the scheduler to swap buffers without reallocation.
+
+## Functions
+
+### Construction
+
+#### allocateBuffer
+
+```haskell
+allocateBuffer :: BlockSize -> IO Buffer
+```
+
+Allocate a new buffer of the given size, zero-initialised via `MV.replicate size 0.0`.
+
+#### allocateBufferWith
+
+```haskell
+allocateBufferWith :: BlockSize -> Float -> IO Buffer
+```
+
+Allocate a new buffer of the given size, filled with the specified constant value.
+
+#### zeroBuffer
+
+```haskell
+zeroBuffer :: BlockSize -> IO BufferRef
+```
+
+Allocate a zero-initialised buffer and wrap it in an `IORef`. Convenience for scheduler state initialisation.
+
+### Buffer Operations
+
+#### bufferLength
+
+```haskell
+bufferLength :: Buffer -> Int
+```
+
+Return the number of samples in the buffer. Equivalent to `bufferSize`.
+
+#### readSample
+
+```haskell
+readSample :: Buffer -> Int -> IO Float
+```
+
+Read the sample at the given index. Returns `0.0` if the index is out of bounds (negative or `>= bufferSize`).
+
+#### writeSample
+
+```haskell
+writeSample :: Buffer -> Int -> Float -> IO ()
+```
+
+Write a sample at the given index. No-op if the index is out of bounds.
+
+#### copyBuffer
+
+```haskell
+copyBuffer :: Buffer -> Buffer -> IO ()
+```
+
+Copy the contents of the source buffer into the destination buffer. Copies `min (bufferSize src) (bufferSize dst)` samples. Implemented via `MV.copy` which compiles to `memcpy`.
+
+#### copyBufferSlice
+
+```haskell
+copyBufferSlice :: Buffer -> Int -> Buffer -> Int -> Int -> IO ()
+```
+
+Copy a slice of samples from source to destination.
+
+| Parameter | Description                    |
+| --------- | ------------------------------ |
+| `src`     | Source buffer                  |
+| `srcOff`  | Offset into source buffer      |
+| `dst`     | Destination buffer             |
+| `dstOff`  | Offset into destination buffer |
+| `count`   | Number of samples to copy      |
+
+Uses `MV.unsafeSlice` internally -- caller must ensure offsets and count are valid.
+
+#### fillBuffer
+
+```haskell
+fillBuffer :: Buffer -> Float -> IO ()
+```
+
+Fill every sample in the buffer with a constant value. Uses `MV.set`.
+
+### Unsafe Operations (no bounds checks)
+
+These are intended for hot-path kernels where the index is guaranteed valid by the caller. Both are marked `{-# INLINE #-}`.
+
+#### unsafeReadSample
+
+```haskell
+unsafeReadSample :: Buffer -> Int -> IO Float
+```
+
+Read a sample without bounds checking. Caller must guarantee `0 <= idx < bufferSize`.
+
+#### unsafeWriteSample
+
+```haskell
+unsafeWriteSample :: Buffer -> Int -> Float -> IO ()
+```
+
+Write a sample without bounds checking. Caller must guarantee `0 <= idx < bufferSize`.
+
+### Buffer Conversion
+
+#### bufferToList
+
+```haskell
+bufferToList :: Buffer -> IO [Float]
+```
+
+Convert a buffer to a Haskell list. Uses `unsafeFreeze` / `unsafeThaw` round-trip so the buffer remains mutable after the call. Intended for testing and debugging only.
+
+#### listToBuffer
+
+```haskell
+listToBuffer :: [Float] -> IO Buffer
+```
+
+Create a buffer from a Haskell list. The buffer size equals the list length. Uses `V.fromList` followed by `V.thaw`.
+
+### Unsafe Operations (FFI)
+
+#### unsafeBufferPtr
+
+```haskell
+unsafeBufferPtr :: Buffer -> IO (Ptr Float)
+```
+
+Get the raw pointer to the buffer data. **Do not use directly** -- this function exists for completeness but will throw an error at runtime. Use `unsafeWithBuffer` instead, which properly brackets the pointer lifetime.
+
+#### unsafeWithBuffer
+
+```haskell
+unsafeWithBuffer :: Buffer -> (Ptr Float -> Int -> IO a) -> IO a
+```
+
+Execute an action with the buffer's raw pointer and size. The pointer is valid only for the duration of the callback. Implemented via `MV.unsafeWith`. This is the correct way to pass buffer data to C/FFI code.
+
+## Usage Notes
+
+- Buffers are **not thread-safe**. The scheduler processes nodes in topological order on a single thread.
+- `copyBuffer` and `copyBufferSlice` use `MV.copy` which maps to `memcpy` -- do not pass overlapping source/destination ranges.
+- For hot-path kernel code, always use `unsafeReadSample` / `unsafeWriteSample` to avoid per-sample bounds checks.
+- `bufferToList` performs a freeze/thaw cycle and allocates a list -- never use in the audio hot path.

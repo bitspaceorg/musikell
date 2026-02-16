@@ -1,0 +1,40 @@
+---
+title: "Musikell.Runtime.Kernel.Builtin.Util"
+description: "Shared utilities for built-in kernels"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-runtime-kernel-util"
+tags: ["reference", "runtime", "builtin"]
+source: "src/Musikell/Runtime/Kernel/Builtin/Util.hs"
+---
+
+**Module:** `Musikell.Runtime.Kernel.Builtin.Util`
+**Source:** `src/Musikell/Runtime/Kernel/Builtin/Util.hs`
+**Dependencies:** none
+
+## Purpose
+
+Shared utility functions used by all built-in kernel implementations. Provides a strict loop primitive and denormal flushing.
+
+## Functions
+
+### `forRange_`
+
+```haskell
+forRange_ :: Int -> (Int -> IO ()) -> IO ()
+```
+
+Strict loop over `[0..n-1]`. Used in every kernel's per-sample processing loop. `{-# INLINE #-}` for zero overhead.
+
+### `flushDenormals`
+
+```haskell
+flushDenormals :: Float -> Float
+```
+
+Flush subnormal floats to zero. Subnormal values cause 10-100x CPU slowdown in IIR filters and feedback loops. Threshold: `abs x < 1.0e-15`. `{-# INLINE #-}`.
+
+## Usage Notes
+
+- Every kernel that accumulates state (filters, delays, feedback) should call `flushDenormals` on its state variables.
+- `forRange_` replaces `forM_ [0..n-1]` to avoid list allocation in the hot path.

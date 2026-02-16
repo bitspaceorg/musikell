@@ -1,0 +1,143 @@
+---
+title: "Musikell.Memory.Pool"
+description: "Pre-allocated buffer pool for zero-allocation real-time scheduling"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "reference-memory-pool"
+tags: ["reference", "memory"]
+source: "src/Musikell/Memory/Pool.hs"
+---
+
+Pre-allocated buffer pool for real-time safe scheduling. Every output port in the graph gets a buffer allocated exactly once at initialisation. During execution the scheduler only performs `IntMap` lookups -- zero allocation in the hot path.
+
+## Purpose
+
+The pool is created once from the graph topology before audio processing begins. Each output port of every node gets its own `Buffer`. Feedback edges get a pair of buffers (current and previous) so the scheduler can read from the previous block while writing to the current one, then swap pointers between blocks.
+
+## Dependencies
+
+| Package      | Import                                                                     |
+| ------------ | -------------------------------------------------------------------------- |
+| `base`       | `Data.IORef`                                                               |
+| `containers` | `Data.IntMap.Strict (IntMap)`                                              |
+| musikell     | `Musikell.Core.Types (NodeId(..), PortId(..), BlockSize)`                  |
+| musikell     | `Musikell.Core.Node (NodeSpec, nodeId, nodeOutputs, nodeChannels, portId)` |
+| musikell     | `Musikell.Core.Graph (Graph, getNodes, getEdges, Edge(..), EdgeKind(..))`  |
+| musikell     | `Musikell.Memory.Buffer (Buffer, allocateBuffer, fillBuffer)`              |
+
+## Key design
+
+Buffer key encoding: `nodeId * 1000 + portId`. This packs `(NodeId, PortId)` into a single `Int` for `IntMap` lookup. Supports up to 1000 ports per node, which is far beyond any realistic audio graph.
+
+```haskell
+bufferKey :: NodeId -> PortId -> Int
+bufferKey (NodeId nid) (PortId pid) = nid * 1000 + pid
+```
+
+## Types
+
+### FeedbackPair
+
+A feedback buffer pair: current (written this block) and previous (read this block). Not exported but used internally by `BufferPool`.
+
+```haskell
+data FeedbackPair = FeedbackPair
+  { fbCurrent  :: !(IORef Buffer)
+  , fbPrevious :: !(IORef Buffer)
+  }
+```
+
+| Field        | Type           | Description                                                                     |
+| ------------ | -------------- | ------------------------------------------------------------------------------- |
+| `fbCurrent`  | `IORef Buffer` | Buffer being written during the current block                                   |
+| `fbPrevious` | `IORef Buffer` | Buffer containing data from the previous block (read-only during current block) |
+
+### BufferPool
+
+```haskell
+data BufferPool = BufferPool
+  { poolBuffers   :: !(IntMap Buffer)
+  , poolBlockSize :: !BlockSize
+  , poolFeedback  :: !(IntMap FeedbackPair)
+  }
+```
+
+| Field           | Type                  | Description                                                |
+| --------------- | --------------------- | ---------------------------------------------------------- |
+| `poolBuffers`   | `IntMap Buffer`       | All output-port buffers, keyed by `nodeId * 1000 + portId` |
+| `poolBlockSize` | `BlockSize`           | Block size used for all buffers in the pool                |
+| `poolFeedback`  | `IntMap FeedbackPair` | Feedback buffer pairs keyed by source `(NodeId, PortId)`   |
+
+`BufferPool` has a custom `Show` instance: `BufferPool[N bufs, M feedback, block=B]`.
+
+## Functions
+
+### Construction
+
+#### allocatePool
+
+```haskell
+allocatePool :: BlockSize -> Graph -> IO BufferPool
+```
+
+Allocate one zero-initialised buffer per output port in the graph. Each buffer size is `blockSize * nodeChannels`. No feedback pairs are created; `poolFeedback` is empty.
+
+#### allocatePoolWithFeedback
+
+```haskell
+allocatePoolWithFeedback :: BlockSize -> Graph -> IO BufferPool
+```
+
+Same as `allocatePool` but also creates feedback buffer pairs for every edge in the graph with `edgeKind == FeedbackEdge`. Each feedback pair gets two independently allocated zero-initialised buffers.
+
+### Access
+
+#### getPoolBuffer
+
+```haskell
+getPoolBuffer :: NodeId -> PortId -> BufferPool -> Maybe Buffer
+```
+
+O(log n) buffer lookup by `(NodeId, PortId)`. Returns `Nothing` if no buffer exists for this node/port combination.
+
+#### getFeedbackBuffer
+
+```haskell
+getFeedbackBuffer :: NodeId -> PortId -> BufferPool -> IO (Maybe Buffer)
+```
+
+Get the previous-block (feedback) buffer for a feedback edge source. Returns `Nothing` if no feedback pair exists for this `(NodeId, PortId)`. Reads from `fbPrevious` via `readIORef`.
+
+#### poolSize
+
+```haskell
+poolSize :: BufferPool -> Int
+```
+
+Return the number of buffers in the pool (excluding feedback pairs). Equivalent to `IntMap.size . poolBuffers`.
+
+### Maintenance
+
+#### resetPool
+
+```haskell
+resetPool :: BufferPool -> IO ()
+```
+
+Zero every buffer in the pool by calling `fillBuffer buf 0.0` on each. Call between blocks only if your kernels rely on zero-initialised output buffers.
+
+#### swapFeedbackBuffers
+
+```haskell
+swapFeedbackBuffers :: BufferPool -> IO ()
+```
+
+Swap current and previous pointers for all feedback buffer pairs. This is a pointer swap via `readIORef` / `writeIORef` -- zero allocation, zero copy. Call once per block after all nodes have executed.
+
+## Usage Notes
+
+- The pool must be allocated **after** the graph is fully constructed, since it iterates over all nodes and edges.
+- Buffer key encoding `nodeId * 1000 + portId` limits the system to 1000 ports per node. This is not validated at runtime.
+- `IntMap` lookup is O(log n). For graphs with hundreds of nodes this is adequate, but a flat array would give O(1). This is a known open issue.
+- Feedback buffer swap must happen exactly once per block, after all nodes execute and before the next block begins.
+- Multi-channel nodes get buffers sized `blockSize * nodeChannels` -- the kernel is responsible for interleaved sample layout.

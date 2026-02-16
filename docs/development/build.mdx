@@ -1,0 +1,146 @@
+---
+title: "Build & CI"
+description: "Build system and CI pipeline documentation"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "development-build"
+tags: ["development", "build", "ci", "nix", "cabal"]
+---
+
+Build system and CI pipeline documentation.
+
+For build flow (local dev, staging), see [build-flow.mdx](build-flow.mdx).
+
+## Prerequisites
+
+- **Nix** with flakes enabled (`experimental-features = nix-command flakes`)
+- **direnv** (optional, for automatic shell activation)
+
+## Local Development
+
+### Enter development shell
+
+```bash
+# Standard dev shell (formatting, pre-commit, cabal)
+nix develop '.#dev'
+
+# Staging shell (CI parity: jq, curl, cachix, gitlab-release-cli)
+nix develop '.#stg'
+
+# Or use direnv (reads .envrc → use flake .#dev)
+direnv allow
+```
+
+### Build and test
+
+```bash
+nix build '.#dev'
+```
+
+- **`nix build '.#dev'`** — build + unit tests + pre-commit (treefmt, nil, haskell-header). Output: `result/bin/musikell`
+- **`nix build '.#stg'`** — same as dev + tests with coverage and coverage output in `result/coverage/`
+
+### Checks (`nix/checks.nix`)
+
+- `dev-unit` — unit tests
+- `dev-pre-commit` — treefmt, nil, haskell-header (auto-prepends File/Author/Docs/Module from git, docs must exist)
+- `stg-coverage` — tests with HPC coverage
+
+### Format and lint
+
+```bash
+# Format all tracked files (Haskell, Nix, Cabal, docs, shell)
+nix develop '.#dev' -c treefmt
+```
+
+Formatters: Fourmolu (Haskell), HLint (Haskell), cabal-fmt, nixfmt, Prettier (MD/MDX/YAML), shfmt (shell). Config: [nix/utils/treefmt.nix](../../nix/utils/treefmt.nix) (Prettier options in Nix only).
+
+---
+
+## CI Pipeline
+
+Defined in [`.gitlab-ci.yml`](../../.gitlab-ci.yml) (project root).
+
+### Stages
+
+| Stage     | When               | What                                                                        |
+| --------- | ------------------ | --------------------------------------------------------------------------- |
+| `build`   | MR, staging, main  | Build (tests + lint) and coverage (parallel on MR)                          |
+| `staging` | Merge to `staging` | Upload binary to Supabase bucket                                            |
+| `release` | Merge to `main`    | Build runs, then manual: release-details → release-confirm → release (auto) |
+
+### Build stage (parallel on MR)
+
+| Job        | Runs on           | What                                                       |
+| ---------- | ----------------- | ---------------------------------------------------------- |
+| `build`    | MR, staging, main | `nix build '.#dev'` (tests + treefmt, nil, haskell-header) |
+| `coverage` | MR only           | `nix build '.#stg'`, HPC report, 80% threshold             |
+
+Build and coverage run simultaneously on merge requests.
+
+### Staging stage
+
+| Job              | Runs on   | What                      |
+| ---------------- | --------- | ------------------------- |
+| `staging-upload` | `staging` | Upload binary to Supabase |
+
+### Release stage (on main)
+
+| Job               | Type   | What                                                                  |
+| ----------------- | ------ | --------------------------------------------------------------------- |
+| `release-details` | Manual | Provide tag, name, description, changelog. Pipeline pauses until run. |
+| `release-confirm` | Manual | Confirm release after details succeed. Pipeline pauses until run.     |
+| `release`         | Auto   | Runs after confirm. Uploads binary and creates GitLab release.        |
+
+**Release variables** (set when running `release-details`):
+
+| Variable              | Description               | Default             |
+| --------------------- | ------------------------- | ------------------- |
+| `RELEASE_TAG`         | Release tag (e.g. v1.0.0) | vYYYYMMDD           |
+| `RELEASE_NAME`        | Release title             | Release &lt;tag&gt; |
+| `RELEASE_DESCRIPTION` | Short description         | —                   |
+| `RELEASE_CHANGELOG`   | Changelog / release notes | —                   |
+
+### Coverage threshold
+
+80% minimum. Set in project: **Settings → Merge requests → Merge checks** ( Coverage gate ) or enforced by the coverage job.
+
+### Required CI variables
+
+| Variable                    | Used by        |
+| --------------------------- | -------------- |
+| `SUPABASE_SERVICE_ROLE_KEY` | staging-upload |
+
+---
+
+## Nix structure
+
+| File                      | Purpose                                                          |
+| ------------------------- | ---------------------------------------------------------------- |
+| `flake.nix`               | Flake entry, imports nix modules                                 |
+| `nix/musikell.nix`        | Package definition (`packages.default`)                          |
+| `nix/devShells.nix`       | Dev shells (`dev`, `stg`)                                        |
+| `nix/checks.nix`          | CI checks (`dev-unit`, `stg-coverage`)                           |
+| `nix/utils/treefmt.nix`   | Formatting (Fourmolu, HLint, cabal-fmt, nixfmt, Prettier, shfmt) |
+| `nix/utils/precommit.nix` | Pre-commit hooks (treefmt + nil)                                 |
+
+---
+
+## Cabal
+
+| Target        | Command                                |
+| ------------- | -------------------------------------- |
+| Build library | `cabal build`                          |
+| Build exe     | `cabal build exe:musikell`             |
+| Run tests     | `cabal test`                           |
+| Run exe       | `cabal run musikell -- run sample.mkl` |
+
+---
+
+## Output locations
+
+| Output             | Path                                           |
+| ------------------ | ---------------------------------------------- |
+| Build result       | `result/bin/musikell` (after `nix build '.#'`) |
+| Coverage (feature) | `coverage/` (CI artifact)                      |
+| Coverage (local)   | `dist/hpc/` (after `cabal test` with coverage) |

@@ -1,0 +1,26 @@
+---
+title: "Development"
+description: "Build system, CI pipeline, and contributor guide"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "development"
+tags: ["development", "build", "ci"]
+---
+
+Build system and CI pipeline documentation for Musikell contributors.
+
+## Documents
+
+| Document                                 | Description                                      |
+| ---------------------------------------- | ------------------------------------------------ |
+| [Build & CI](development/build.mdx)      | Nix flakes, Cabal, GitLab CI, checks, formatting |
+| [Build Flow](development/build-flow.mdx) | Local dev flow, staging CI, main/release flow    |
+
+## Quick Reference
+
+- **Build:** `nix build`
+- **Dev shell:** `nix develop '.#dev'`
+- **Unit tests:** `nix build .#checks.aarch64-darwin.dev-unit`
+- **Format:** `nix fmt`
+- **Must `git add` new files** before `nix build` (Nix flakes only see tracked files)
+- **GHC:** 9.8.4, Haskell2010

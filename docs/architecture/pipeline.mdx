@@ -1,0 +1,143 @@
+---
+title: "Pipeline"
+description: "Full data flow from .mkl source file through parsing, lowering, graph construction, scheduling, and streaming output"
+author: "rahulmnavneeth"
+date: "16 FEB 2026"
+slug: "architecture/pipeline"
+tags: ["architecture", "pipeline", "data-flow"]
+---
+
+## Overview
+
+Musikell processes audio through a five-stage pipeline: a `.mkl` source file is parsed into an AST, lowered into a typed audio graph with an execution plan, resolved into pre-built closures with zero-alloc buffer references, scheduled as a flat vector walk, and finally streamed through a Conduit pipeline that connects stdin to stdout in raw PCM. Each stage is a pure transformation except for the final streaming loop, which performs IO.
+
+## Diagram
+
+```
+  .mkl file
+     |
+     v
+ ┌────────────────┐
+ │  Stage 1:      │   parseProgram :: FilePath -> Text -> Either ParseError Program
+ │  PARSING       │   Hand-rolled recursive descent parser
+ │                │   Produces: Program (imports + statements)
+ └───────┬────────┘
+         |
+         v
+ ┌────────────────┐
+ │  Stage 2:      │   lowerProgram :: KernelRegistry -> Program -> IO (Either LoweringError LoweringResult)
+ │  LOWERING      │   AST -> Graph + ExecutionPlan + KernelRegistry
+ │                │   Processes imports, resolves variables, creates nodes, wires edges
+ └───────┬────────┘
+         |
+         v
+ ┌────────────────┐
+ │  Stage 3:      │   buildResolvedPlan :: ExecutionPlan -> Graph -> KernelRegistry -> BufferPool
+ │  RESOLUTION    │                     -> Either SchedulerError ResolvedPlan
+ │                │   Captures kernel refs + buffer pointers at init time
+ └───────┬────────┘
+         |
+         v
+ ┌────────────────┐
+ │  Stage 4:      │   executeResolvedBlockWithState :: ResolvedPlan -> SchedulerState -> IO SchedulerState
+ │  SCHEDULING    │   Walks flat Vector of pre-built IO() closures
+ │                │   One call per node per block, swaps feedback buffers after each block
+ └───────┬────────┘
+         |
+         v
+ ┌────────────────┐
+ │  Stage 5:      │   runPipeline :: ExecutionPlan -> Graph -> KernelRegistry -> ...  -> IO ()
+ │  STREAMING     │   stdin -> bytesIntoBuffer -> executeBlock -> unsafeBufferToBytes -> stdout
+ │                │   Conduit pipeline: chunkedSource .| processConduit .| sinkHandle
+ └────────────────┘
+```
+
+## Stage 1: Parsing
+
+The parser (`Musikell.Language.Parser.parseProgram`) reads `.mkl` source text and produces an AST (`Program`) consisting of import declarations and a list of statements.
+
+The parser is a hand-rolled recursive descent parser (no parser combinator library). It handles:
+
+- Import declarations (`import "path" *`, `import "path" { name1, name2 }`, `import "path" as Alias`)
+- I/O bindings (`<<< identifier`, `>>> identifier`)
+- Node expressions with type parameters, named arguments, overrides, and method chains
+- Parameter sets, group definitions, comments
+- Arithmetic expressions including `min`, `max`, `clamp`
+- Binding prefixes: `!` (bypass) and `#` (mute)
+
+The output `Program` type wraps `[Located Import]` and `[Located Statement]`, where `Located` attaches source position information for error reporting.
+
+## Stage 2: Lowering
+
+The lowering pass (`Musikell.Language.Lowering.lowerProgram`) transforms the AST into a runnable audio graph. It takes a `KernelRegistry` (pre-populated with builtins) and a `Program`, and produces a `LoweringResult` containing:
+
+- **Graph**: Nodes and edges representing the audio signal flow
+- **ExecutionPlan**: Topologically sorted list of node IDs
+- **KernelRegistry**: Updated registry with all kernels needed by the graph
+- **Input/Output node IDs**: Which nodes receive stdin and emit stdout
+- **Bypass/Mute sets**: Nodes marked with `!` or `#` prefixes
+
+The lowering process walks statements in program order:
+
+1. **Imports** are processed first. Each imported `.mkl` file is parsed and recursively lowered, with its bindings merged into the current scope (import merging is currently stubbed).
+2. **I/O statements** (`<<<`/`>>>`) create input and output nodes wired to stdin/stdout.
+3. **Bindings** create nodes from node expressions. For each binding:
+    - Input references are resolved (including auto-mix for groups and feedback `~` references).
+    - The kernel is looked up or created from builtins (oscillator, gain, delay, filter, etc.).
+    - The node is added to the graph and edges are wired from inputs.
+    - Method chains (`.Gain(...)`, `.mute()`, etc.) create additional nodes wired in series.
+4. **Groups** create scoped sub-graphs. When a group is referenced as an input, an auto-mix node is generated on demand.
+5. **Parameter sets** store named parameter collections for later evaluation in expressions and overrides.
+
+Finalization calls `buildPlan` which performs a topological sort of the graph to produce the `ExecutionPlan`.
+
+## Stage 3: Resolution
+
+`Musikell.Core.ResolvedPlan.buildResolvedPlan` is called once at initialization time. It takes the `ExecutionPlan`, `Graph`, `KernelRegistry`, and `BufferPool`, and resolves every node into a `ResolvedNode`:
+
+```haskell
+data ResolvedNode = ResolvedNode
+  { rnNodeId  :: !NodeId
+  , rnKernel  :: !KernelId
+  , rnInputs  :: ![Buffer]     -- Pre-resolved input buffers
+  , rnOutputs :: ![Buffer]     -- Pre-resolved output buffers
+  , rnExecute :: IO ()          -- Pre-built closure: kernelExecute inputs outputs
+  }
+```
+
+For each node in topological order:
+
+1. Look up the `NodeSpec` in the graph.
+2. Look up the `KernelSpec` in the registry.
+3. Resolve input buffers by following incoming edges to source node output buffers in the pool.
+4. Resolve output buffers from the pool using `nodeId * 1000 + portId` keys.
+5. Build the `rnExecute` closure by partially applying `kernelExecute spec inputs outputs`.
+
+The result is a `ResolvedPlan` — a flat `Vector ResolvedNode` in topological order. This is the bridge between the setup phase (where lookups are acceptable) and the runtime phase (where they are not).
+
+## Stage 4: Scheduling
+
+The scheduler provides two execution modes:
+
+**Production path** (`executeResolvedBlockWithState`): Walks the flat `Vector` of pre-built `IO ()` closures using `V.mapM_ rnExecute`. One function call per node per block. After the block completes, feedback buffers are swapped via `swapFeedbackBuffers` to implement one-block delay for feedback edges. The block counter is incremented.
+
+**Legacy path** (`executeBlock`): Iterates over the `planNodes` list, performing `Map` and `IntMap` lookups for each node on every block. This path is kept for testing but is not used in production due to per-block allocation overhead.
+
+Both paths are deterministic: nodes execute in the same topological order every block, and the entire block completes before any output is emitted.
+
+## Stage 5: Streaming
+
+`Musikell.IO.ConduitPipeline.runPipeline` sets up the end-to-end streaming pipeline:
+
+1. **Setup**: Sets stdin/stdout to binary mode with block buffering sized to `blockSize * channels * 4` bytes (32-bit float samples).
+2. **Pool allocation**: `allocatePool` creates the `BufferPool` with pre-allocated `IOVector Float` buffers for every node port in the graph.
+3. **Conduit pipeline**: Three stages connected with `.|`:
+    - `chunkedSource blockSize`: Reads from stdin and emits fixed-size `ByteString` chunks. Short final blocks are zero-padded.
+    - `processConduit`: For each input chunk:
+        - `bytesIntoBuffer` copies raw PCM bytes into the input node's output buffer in the pool.
+        - `executeBlock` runs the full graph (one block).
+        - `unsafeBufferToBytes` reads the output node's buffer as a `ByteString` (zero-copy via `unsafeFreeze`).
+        - Yields the output bytes downstream.
+    - `sinkHandle stdout`: Writes output chunks to stdout.
+
+The pipeline runs indefinitely until stdin closes (EOF) or the process is terminated.
