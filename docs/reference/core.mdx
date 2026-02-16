@@ -18,11 +18,11 @@ Graph → ExecutionPlan → ResolvedPlan → Scheduler
 
 ## Modules
 
-| Module                                   | Description                                                        |
-| ---------------------------------------- | ------------------------------------------------------------------ |
-| [Types](core/types.mdx)                  | Foundation types: NodeId, PortId, KernelId, BlockSize, error types |
-| [Node](core/node.mdx)                    | Port, NodeSpec — node model with channel support                   |
-| [Graph](core/graph.mdx)                  | DAG representation with forward and feedback edges                 |
-| [ExecutionPlan](core/execution-plan.mdx) | Topologically sorted execution order (Kahn's algorithm)            |
-| [ResolvedPlan](core/resolved-plan.mdx)   | Pre-resolved plan — zero allocation in the hot path                |
-| [Scheduler](core/scheduler.mdx)          | Block-based deterministic scheduler with two execution modes       |
+| Module                                         | Description                                                        |
+| ---------------------------------------------- | ------------------------------------------------------------------ |
+| [Types](reference-core-types)                  | Foundation types: NodeId, PortId, KernelId, BlockSize, error types |
+| [Node](reference-core-node)                    | Port, NodeSpec — node model with channel support                   |
+| [Graph](reference-core-graph)                  | DAG representation with forward and feedback edges                 |
+| [ExecutionPlan](reference-core-execution-plan) | Topologically sorted execution order (Kahn's algorithm)            |
+| [ResolvedPlan](reference-core-resolved-plan)   | Pre-resolved plan — zero allocation in the hot path                |
+| [Scheduler](reference-core-scheduler)          | Block-based deterministic scheduler with two execution modes       |

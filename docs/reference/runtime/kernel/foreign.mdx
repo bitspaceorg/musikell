@@ -56,4 +56,4 @@ The returned `KernelSpec` closures write directly into Haskell buffer memory via
 - Pre-allocates `CBuffer` arrays once at load time per kernel, reused per block (zero allocation in hot path).
 - ABI version is checked per descriptor — mismatches are reported per kernel.
 - Used by `Musikell.CLI.Dispatch.buildRegistry` when a backend path is provided.
-- See [ABI specification](../../ffi/abi.mdx) for the C contract.
+- See [ABI specification](reference-ffi-abi) for the C contract.

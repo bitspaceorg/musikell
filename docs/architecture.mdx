@@ -11,10 +11,10 @@ System architecture documentation — how Musikell works and why it's designed t
 
 ## Documents
 
-| Document                                        | Description                                                       |
-| ----------------------------------------------- | ----------------------------------------------------------------- |
-| [Pipeline](architecture/pipeline.mdx)           | Full data flow: stdin → parse → lower → graph → schedule → output |
-| [Hot Path](architecture/hot-path.mdx)           | Zero-alloc design, ResolvedPlan rationale, C tick loop            |
-| [DSP Design](architecture/dsp-design.mdx)       | Algorithm choices: PolyBLEP, SVF, FDN rationale                   |
-| [Node Model](architecture/node-model.mdx)       | Node taxonomy: Creational, Manipulative, Conditional, Topological |
-| [Backend Guide](architecture/backend-guide.mdx) | How to implement a custom backend via C ABI                       |
+| Document                                    | Description                                                       |
+| ------------------------------------------- | ----------------------------------------------------------------- |
+| [Pipeline](architecture-pipeline)           | Full data flow: stdin → parse → lower → graph → schedule → output |
+| [Hot Path](architecture-hot-path)           | Zero-alloc design, ResolvedPlan rationale, C tick loop            |
+| [DSP Design](architecture-dsp-design)       | Algorithm choices: PolyBLEP, SVF, FDN rationale                   |
+| [Node Model](architecture-node-model)       | Node taxonomy: Creational, Manipulative, Conditional, Topological |
+| [Backend Guide](architecture-backend-guide) | How to implement a custom backend via C ABI                       |

@@ -11,18 +11,18 @@ Complete module reference for the Musikell audio runtime — every type, every f
 
 ## Layers
 
-| Layer                              | Description                                              | Index                                                      |
-| ---------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------- |
-| [Core](reference/core.mdx)         | Graph model, execution plan, scheduling                  | Types, Node, Graph, ExecutionPlan, ResolvedPlan, Scheduler |
-| [Memory](reference/memory.mdx)     | Buffer management, layout, pool                          | Buffer, Layout, Pool                                       |
-| [Language](reference/language.mdx) | DSL grammar, parsing, AST, lowering                      | AST, Parser, Lowering, Grammar                             |
-| [Runtime](reference/runtime.mdx)   | Kernel abstraction, builtin kernels, parameter smoothing | KernelSpec, Builtins, Param                                |
-| [IO](reference/io.mdx)             | Unix pipeline streaming                                  | StreamInput, StreamOutput, ConduitPipeline                 |
-| [FFI](reference/ffi.mdx)           | C ABI bridge and exports                                 | Bridge, Exports, ABI                                       |
-| [CLI](reference/cli.mdx)           | Command-line interface                                   | Command, Parse, Dispatch                                   |
-| [Config](reference/config.mdx)     | Flat key=value configuration                             | Config, configPath, read/write                             |
-| [Backend](reference/backend.mdx)   | Nix flake backend resolution                             | resolveBackend, ResolveError                               |
+| Layer                          | Description                                              | Index                                                      |
+| ------------------------------ | -------------------------------------------------------- | ---------------------------------------------------------- |
+| [Core](reference-core)         | Graph model, execution plan, scheduling                  | Types, Node, Graph, ExecutionPlan, ResolvedPlan, Scheduler |
+| [Memory](reference-memory)     | Buffer management, layout, pool                          | Buffer, Layout, Pool                                       |
+| [Language](reference-language) | DSL grammar, parsing, AST, lowering                      | AST, Parser, Lowering, Grammar                             |
+| [Runtime](reference-runtime)   | Kernel abstraction, builtin kernels, parameter smoothing | KernelSpec, Builtins, Param                                |
+| [IO](reference-io)             | Unix pipeline streaming                                  | StreamInput, StreamOutput, ConduitPipeline                 |
+| [FFI](reference-ffi)           | C ABI bridge and exports                                 | Bridge, Exports, ABI                                       |
+| [CLI](reference-cli)           | Command-line interface                                   | Command, Parse, Dispatch                                   |
+| [Config](reference-config)     | Flat key=value configuration                             | Config, configPath, read/write                             |
+| [Backend](reference-backend)   | Nix flake backend resolution                             | resolveBackend, ResolveError                               |
 
 ## Grammar
 
-The full BNF grammar specification is at [reference/grammar.mdx](reference/grammar.mdx).
+The full BNF grammar specification is at [reference/grammar.mdx](reference-grammar).

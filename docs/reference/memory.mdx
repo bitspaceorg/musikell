@@ -21,8 +21,8 @@ Layout (spec) --> allocateBuffer --> BufferPool (IntMap)
 
 ## Modules
 
-| Module                      | Description                                                                            |
-| --------------------------- | -------------------------------------------------------------------------------------- |
-| [Buffer](memory/buffer.mdx) | `IOVector Float` wrapper with safe/unsafe sample access, copy, FFI pointer export      |
-| [Layout](memory/layout.mdx) | Alignment and channel-aware size calculations, validation                              |
-| [Pool](memory/pool.mdx)     | Pre-allocated `IntMap Buffer` keyed by `nodeId * 1000 + portId`, feedback buffer pairs |
+| Module                            | Description                                                                            |
+| --------------------------------- | -------------------------------------------------------------------------------------- |
+| [Buffer](reference-memory-buffer) | `IOVector Float` wrapper with safe/unsafe sample access, copy, FFI pointer export      |
+| [Layout](reference-memory-layout) | Alignment and channel-aware size calculations, validation                              |
+| [Pool](reference-memory-pool)     | Pre-allocated `IntMap Buffer` keyed by `nodeId * 1000 + portId`, feedback buffer pairs |

@@ -11,56 +11,56 @@ Musikell is a deterministic, real-time, graph-based audio runtime. It executes a
 
 ## Documentation
 
-| Section                          | Purpose                                                |
-| -------------------------------- | ------------------------------------------------------ |
-| [Guide](guide.mdx)               | Getting started, writing `.mkl` programs, examples     |
-| [Reference](reference.mdx)       | Technical reference — every module, type, and function |
-| [Architecture](architecture.mdx) | System design, data flow, DSP algorithm rationale      |
-| [Development](development.mdx)   | Build system, CI, contributor guide                    |
+| Section                      | Purpose                                                |
+| ---------------------------- | ------------------------------------------------------ |
+| [Guide](guide)               | Getting started, writing `.mkl` programs, examples     |
+| [Reference](reference)       | Technical reference — every module, type, and function |
+| [Architecture](architecture) | System design, data flow, DSP algorithm rationale      |
+| [Development](development)   | Build system, CI, contributor guide                    |
 
 ## Guide — Writing `.mkl` Programs
 
-| Page                                     | What you'll learn                                |
-| ---------------------------------------- | ------------------------------------------------ |
-| [Installation](guide/installation.mdx)   | Build from source with Nix                       |
-| [First Program](guide/first-program.mdx) | Hello world: sine wave to stdout                 |
-| [Concepts](guide/concepts.mdx)           | Nodes, edges, blocks, kernels — the mental model |
-| [Nodes](guide/nodes.mdx)                 | Creational, Manipulative, Conditional node types |
-| [Routing](guide/routing.mdx)             | Inputs, outputs, groups, feedback edges          |
-| [Effects](guide/effects.mdx)             | Filters, reverb, delay, dynamics                 |
-| [Patterns](guide/patterns.mdx)           | Beat sequencing, clock, timing                   |
-| [Conditional](guide/conditional.mdx)     | Bypass, mute, crossfade, switch/case             |
-| [Stereo](guide/stereo.mdx)               | Channels, .L/.R, mono-to-stereo                  |
-| [Examples](guide/examples.mdx)           | Annotated example programs                       |
+| Page                                 | What you'll learn                                |
+| ------------------------------------ | ------------------------------------------------ |
+| [Installation](guide-installation)   | Build from source with Nix                       |
+| [First Program](guide-first-program) | Hello world: sine wave to stdout                 |
+| [Concepts](guide-concepts)           | Nodes, edges, blocks, kernels — the mental model |
+| [Nodes](guide-nodes)                 | Creational, Manipulative, Conditional node types |
+| [Routing](guide-routing)             | Inputs, outputs, groups, feedback edges          |
+| [Effects](guide-effects)             | Filters, reverb, delay, dynamics                 |
+| [Patterns](guide-patterns)           | Beat sequencing, clock, timing                   |
+| [Conditional](guide-conditional)     | Bypass, mute, crossfade, switch/case             |
+| [Stereo](guide-stereo)               | Channels, .L/.R, mono-to-stereo                  |
+| [Examples](guide-examples)           | Annotated example programs                       |
 
 ## Reference — Module Map
 
-| Layer        | Modules                                                    | Docs                               |
-| ------------ | ---------------------------------------------------------- | ---------------------------------- |
-| **Core**     | Types, Node, Graph, ExecutionPlan, ResolvedPlan, Scheduler | [Core](reference/core.mdx)         |
-| **Memory**   | Buffer, Layout, Pool                                       | [Memory](reference/memory.mdx)     |
-| **Language** | AST, Parser, Lowering, Grammar                             | [Language](reference/language.mdx) |
-| **Runtime**  | Kernel, Param, 13 builtin kernels                          | [Runtime](reference/runtime.mdx)   |
-| **IO**       | StreamInput, StreamOutput, ConduitPipeline                 | [IO](reference/io.mdx)             |
-| **FFI**      | Bridge, Exports, ABI                                       | [FFI](reference/ffi.mdx)           |
-| **CLI**      | Command, Parse, Dispatch                                   | [CLI](reference/cli.mdx)           |
+| Layer        | Modules                                                    | Docs                           |
+| ------------ | ---------------------------------------------------------- | ------------------------------ |
+| **Core**     | Types, Node, Graph, ExecutionPlan, ResolvedPlan, Scheduler | [Core](reference-core)         |
+| **Memory**   | Buffer, Layout, Pool                                       | [Memory](reference-memory)     |
+| **Language** | AST, Parser, Lowering, Grammar                             | [Language](reference-language) |
+| **Runtime**  | Kernel, Param, 13 builtin kernels                          | [Runtime](reference-runtime)   |
+| **IO**       | StreamInput, StreamOutput, ConduitPipeline                 | [IO](reference-io)             |
+| **FFI**      | Bridge, Exports, ABI                                       | [FFI](reference-ffi)           |
+| **CLI**      | Command, Parse, Dispatch                                   | [CLI](reference-cli)           |
 
 ## Architecture
 
-| Page                                            | Topic                                                             |
-| ----------------------------------------------- | ----------------------------------------------------------------- |
-| [Pipeline](architecture/pipeline.mdx)           | Full data flow: stdin → parse → lower → graph → schedule → output |
-| [Hot Path](architecture/hot-path.mdx)           | Zero-alloc design, ResolvedPlan rationale                         |
-| [DSP Design](architecture/dsp-design.mdx)       | PolyBLEP, SVF, FDN — algorithm choices                            |
-| [Node Model](architecture/node-model.mdx)       | Node taxonomy: creational, manipulative, conditional, topological |
-| [Backend Guide](architecture/backend-guide.mdx) | How to implement a custom backend                                 |
+| Page                                        | Topic                                                             |
+| ------------------------------------------- | ----------------------------------------------------------------- |
+| [Pipeline](architecture-pipeline)           | Full data flow: stdin → parse → lower → graph → schedule → output |
+| [Hot Path](architecture-hot-path)           | Zero-alloc design, ResolvedPlan rationale                         |
+| [DSP Design](architecture-dsp-design)       | PolyBLEP, SVF, FDN — algorithm choices                            |
+| [Node Model](architecture-node-model)       | Node taxonomy: creational, manipulative, conditional, topological |
+| [Backend Guide](architecture-backend-guide) | How to implement a custom backend                                 |
 
 ## Development
 
-- [Build & CI](development/build.mdx) — Nix, Cabal, GitLab CI, checks, formatting
-- [Build Flow](development/build-flow.mdx) — Local dev flow, staging CI, main/release flow
+- [Build & CI](development-build) — Nix, Cabal, GitLab CI, checks, formatting
+- [Build Flow](development-build-flow) — Local dev flow, staging CI, main/release flow
 
 ## Design Notes
 
-- [Design Overview](design/index.mdx) — Early design notes and specifications
+- [Design Notes](design) — Early design notes and specifications
 - [Grammar Snippets](design/grammar/snippets/v1.mkl) — Example `.mkl` syntax
